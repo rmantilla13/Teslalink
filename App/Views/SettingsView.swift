@@ -105,7 +105,7 @@ struct GeofencesView: View {
                         Text(g.name).foregroundStyle(.primary)
                         if let t = g.tariff {
                             Text("\(t.pricePerUnit.formatted(.currency(code: t.currencyCode))) per \(t.basis == .perMinute ? "min" : "kWh")\(t.windows.isEmpty ? "" : " + time-of-use")")
-                                .font(.caption).foregroundStyle(.secondary)
+                                .font(TL.Typeface.caption).foregroundStyle(TL.Palette.inkMuted)
                         }
                     }
                 }
@@ -166,7 +166,7 @@ struct GeofenceEditor: View {
                 }
                 .frame(height: 240)
                 .listRowInsets(EdgeInsets())
-                Text("Tap the map to move the place.").font(.caption).foregroundStyle(.secondary)
+                Text("Tap the map to move the place.").font(TL.Typeface.caption).foregroundStyle(TL.Palette.inkMuted)
                 Stepper("Radius \(Int(fence.radiusM)) m", value: $fence.radiusM, in: 25...1000, step: 25)
             }
             Section("Electricity price") {

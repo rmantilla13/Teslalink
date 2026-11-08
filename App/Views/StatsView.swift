@@ -49,71 +49,85 @@ struct StatsView: View {
                     StatTile(title: "Fast charging", value: stats.dcFastShare.map { "\(Int(($0 * 100).rounded()))%" } ?? "–", symbol: "bolt.circle")
                 }
 
-                Card(title: "Distance by \(period == .week || period == .month ? "day" : "month")", symbol: "chart.bar") {
-                    Chart(inPeriod) { d in
-                        BarMark(x: .value("Date", d.startDate, unit: period == .week || period == .month ? .day : .month),
-                                y: .value(f.distanceUnit, f.km(d.distanceKm ?? 0)))
-                        .foregroundStyle(TL.Palette.steel)
+                let byDay = period == .week || period == .month
+                let unit: Calendar.Component = byDay ? .day : .month
+                let buckets = Dictionary(grouping: inPeriod) { Calendar.current.dateInterval(of: unit, for: $0.startDate)?.start ?? $0.startDate }
+                    .map { (date: $0.key, km: f.km($0.value.compactMap(\.distanceKm).reduce(0, +))) }
+                    .sorted { $0.date < $1.date }
+                let current = Calendar.current.dateInterval(of: unit, for: Date())?.start
+                Card(title: "Distance by \(byDay ? "day" : "month")", symbol: "chart.bar",
+                     aside: AnyView(ChartUnit(text: buckets.isEmpty ? f.distanceUnit : "avg \(Int((buckets.map(\.km).reduce(0, +) / Double(buckets.count)).rounded())) \(f.distanceUnit)"))) {
+                    Chart {
+                        ForEach(buckets, id: \.date) { b in
+                            BarMark(x: .value("Date", b.date, unit: unit), y: .value(f.distanceUnit, b.km), width: .ratio(0.7))
+                                .foregroundStyle(TLBars.totalColor(highlighted: b.date == current))
+                        }
+                        if !buckets.isEmpty {
+                            RuleMark(y: .value("Average", buckets.map(\.km).reduce(0, +) / Double(buckets.count)))
+                                .foregroundStyle(TL.Palette.lightbar.opacity(0.6))
+                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 4]))
+                        }
                     }
-                    .frame(height: 180)
+                    .tlChartAxes()
+                    .frame(height: 160)
                 }
 
                 let effPoints = inPeriod.filter { $0.efficiencyWhPerKm != nil && $0.outsideTempAvgC != nil && ($0.distanceKm ?? 0) > 3 }
                 if effPoints.count >= 3 {
-                    Card(title: "Efficiency vs temperature", symbol: "thermometer.snowflake") {
+                    Card(title: "Efficiency vs temperature", symbol: "thermometer.snowflake", lightbar: false, aside: AnyView(ChartUnit(text: f.efficiencyUnit))) {
                         Chart(effPoints) { d in
-                            PointMark(x: .value("°", model.settings.units == .metric ? d.outsideTempAvgC! : d.outsideTempAvgC! * 9 / 5 + 32),
-                                      y: .value(f.efficiencyUnit, model.settings.units == .metric ? d.efficiencyWhPerKm! : d.efficiencyWhPerKm! * Units.kmPerMile))
-                                .symbolSize(min(200, (d.distanceKm ?? 5) * 4))
-                                .opacity(0.7)
+                            let x = PlottableValue.value("Temperature", model.settings.units == .metric ? d.outsideTempAvgC! : d.outsideTempAvgC! * 9 / 5 + 32)
+                            let y = PlottableValue.value(f.efficiencyUnit, model.settings.units == .metric ? d.efficiencyWhPerKm! : d.efficiencyWhPerKm! * Units.kmPerMile)
+                            PointMark(x: x, y: y)
+                                .symbolSize(min(220, (d.distanceKm ?? 5) * 4))
+                                .foregroundStyle(TL.Palette.ion.opacity(0.3))
+                            PointMark(x: x, y: y)
+                                .symbol(.circle.strokeBorder(lineWidth: 1))
+                                .symbolSize(min(220, (d.distanceKm ?? 5) * 4))
+                                .foregroundStyle(TL.Palette.ion)
                         }
-                        .frame(height: 200)
-                        Text("Bigger dots are longer drives. Cold weather and short trips cost the most.")
-                            .font(.caption).foregroundStyle(.secondary)
+                        .tlChartAxes(xCount: 5)
+                        .frame(height: 190)
+                        ChartNote(text: "Bigger dots are longer drives. Cold weather and short trips cost the most.")
                     }
                 }
 
-                Card(title: "Battery health", symbol: "battery.100percent") {
+                Card(title: "Battery health", symbol: "battery.100percent", lightbar: false, aside: AnyView(ChartUnit(text: "range at 100%"))) {
                     if health.count >= 2 {
                         if let pct = DegradationEstimator.healthPercent(health) {
                             Text("\(pct.formatted(.number.precision(.fractionLength(1))))% of first-logged range")
                                 .font(TL.Typeface.title)
                         }
-                        Chart(health, id: \.date) { p in
-                            LineMark(x: .value("Date", p.date), y: .value("Range at 100%", f.km(p.rangeAt100Km)))
-                                .interpolationMethod(.catmullRom)
-                                .foregroundStyle(TL.Palette.ion)
-                            PointMark(x: .value("Date", p.date), y: .value("Range at 100%", f.km(p.rangeAt100Km))).symbolSize(12)
-                        }
-                        .chartYScale(domain: .automatic(includesZero: false))
-                        .frame(height: 180)
+                        let pts = health.map { TLPoint(x: $0.date, y: f.km($0.rangeAt100Km)) }
+                        let lo = pts.map(\.y).min() ?? 0, hi = pts.map(\.y).max() ?? 1
+                        TLLineChart(points: pts, color: TL.Palette.ion, markMax: false, liveEnd: true,
+                                    yDomain: (lo - 10)...(hi + 10), height: 140,
+                                    valueFormat: { "\(Int($0.rounded())) \(f.distanceUnit)" })
                         if let cap = health.last?.capacityKwh {
-                            Text("Estimated usable capacity: \(f.energy(cap))").font(.caption).foregroundStyle(.secondary)
+                            ChartNote(text: "Estimated usable capacity: \(f.energy(cap))")
                         }
                     } else {
-                        Text("Needs a few charges that end above 50% to project range at 100%.")
-                            .font(.footnote).foregroundStyle(.secondary)
+                        ChartNote(text: "Needs a few charges that end above 50% to project range at 100%.")
                     }
                     if let eff {
-                        Text("Derived consumption: \(f.efficiency(whPerKm: eff * 1000)) of rated range")
-                            .font(.caption).foregroundStyle(.secondary)
+                        ChartNote(text: "Derived consumption: \(f.efficiency(whPerKm: eff * 1000)) of rated range")
                     }
                 }
 
-                Card(title: "Parked drain", symbol: "moon.zzz") {
+                Card(title: "Parked drain", symbol: "moon.zzz", lightbar: false,
+                     aside: AnyView(ChartLegend(items: [("Slept", TL.Palette.sleep), ("Kept awake", TL.Palette.amber)]))) {
                     if drain.isEmpty {
-                        Text("Shows how much range you lose while parked, once a few parking periods are logged.")
-                            .font(.footnote).foregroundStyle(.secondary)
+                        ChartNote(text: "Shows how much range you lose while parked, once a few parking periods are logged.")
                     } else {
                         let perDay = drain.map(\.rangeLostPerDayKm).reduce(0, +) / Double(drain.count)
                         Text("≈ \(f.distance(perDay)) per day").font(TL.Typeface.title)
-                        Chart(drain.prefix(30), id: \.start) { p in
-                            BarMark(x: .value("Parked", p.start), y: .value("per day", f.km(p.rangeLostPerDayKm)))
+                        Chart(Array(drain.prefix(30).enumerated()), id: \.offset) { i, p in
+                            BarMark(x: .value("Stay", i), y: .value("per day", f.km(p.rangeLostPerDayKm)), width: .ratio(0.7))
                                 .foregroundStyle((p.asleepFraction ?? 1) < 0.5 ? TL.Palette.amber : TL.Palette.sleep)
                         }
-                        .frame(height: 150)
-                        Text("Amber: the car was awake for most of the stay (Sentry, climate, an app keeping it up).")
-                            .font(.caption).foregroundStyle(.secondary)
+                        .tlChartAxes(xLabels: false)
+                        .frame(height: 130)
+                        ChartNote(text: "Amber stays kept the car awake (Sentry, climate, an app polling it).")
                     }
                 }
             }

@@ -64,10 +64,10 @@ struct DriveRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(place(drive.startGeofenceID, drive.startAddress)) + Text("  →  ").foregroundStyle(.secondary) + Text(place(drive.endGeofenceID, drive.endAddress))
+                Text(place(drive.startGeofenceID, drive.startAddress)) + Text("  →  ").foregroundStyle(TL.Palette.edgeStrong) + Text(place(drive.endGeofenceID, drive.endAddress))
                 Spacer()
                 if drive.isOpen { Text("LIVE").tlLabel().foregroundStyle(TL.Palette.onIon).padding(.horizontal, 6).padding(.vertical, 2).background(ChamferedRectangle(cut: 4).fill(TL.Palette.ion)) }
-                if drive.isInferred { Image(systemName: "questionmark.circle").foregroundStyle(.secondary).help("Reconstructed: the app wasn't running during this drive") }
+                if drive.isInferred { Image(systemName: "questionmark.circle").foregroundStyle(TL.Palette.inkMuted).help("Reconstructed: the app wasn't running during this drive") }
             }
             .font(TL.Typeface.bodyStrong)
             .lineLimit(1)
@@ -131,32 +131,31 @@ struct DriveDetailView: View {
                     }
                 }
 
-                if positions.contains(where: { $0.speedKmh != nil }) {
-                    Card(title: "Speed", symbol: "speedometer") {
-                        Chart(positions.filter { $0.speedKmh != nil }, id: \.timestamp) {
-                            AreaMark(x: .value("Time", $0.timestamp), y: .value(f.speedUnit, f.km($0.speedKmh!)))
-                                .foregroundStyle(TL.Palette.ion.opacity(0.25))
-                            LineMark(x: .value("Time", $0.timestamp), y: .value(f.speedUnit, f.km($0.speedKmh!)))
-                                .foregroundStyle(TL.Palette.ion)
-                        }
-                        .frame(height: 160)
+                let speed = positions.compactMap { p in p.speedKmh.map { TLPoint(x: p.timestamp, y: f.km($0)) } }
+                if speed.count > 2 {
+                    Card(title: "Speed", symbol: "speedometer", lightbar: false, aside: AnyView(ChartUnit(text: f.speedUnit))) {
+                        TLLineChart(points: speed, color: TL.Palette.ion, height: 150)
                     }
                 }
-                if positions.contains(where: { $0.powerKw != nil }) {
-                    Card(title: "Power", symbol: "bolt") {
-                        Chart(positions.filter { $0.powerKw != nil }, id: \.timestamp) {
-                            BarMark(x: .value("Time", $0.timestamp), y: .value("kW", $0.powerKw!))
-                                .foregroundStyle($0.powerKw! < 0 ? TL.Palette.charge : TL.Palette.ion)
+                let power = positions.filter { $0.powerKw != nil && $0.source != .phone }
+                if power.count > 2 {
+                    Card(title: "Power", symbol: "bolt", lightbar: false,
+                         aside: AnyView(ChartLegend(items: [("Drive", TL.Palette.ion), ("Regen", TL.Palette.charge)]))) {
+                        Chart(power, id: \.timestamp) { p in
+                            BarMark(x: .value("Time", p.timestamp), y: .value("kW", p.powerKw!))
+                                .foregroundStyle(TLBars.signedColor(p.powerKw!))
+                            RuleMark(y: .value("Zero", 0)).foregroundStyle(TL.Palette.edgeStrong).lineStyle(StrokeStyle(lineWidth: 1))
                         }
-                        .frame(height: 140)
+                        .tlChartAxes()
+                        .frame(height: 130)
                     }
                 }
-                if positions.filter({ $0.elevationM != nil }).count > 5 {
-                    Card(title: "Elevation", symbol: "mountain.2") {
-                        Chart(positions.filter { $0.elevationM != nil }, id: \.timestamp) {
-                            AreaMark(x: .value("Time", $0.timestamp), y: .value("m", $0.elevationM!)).foregroundStyle(TL.Palette.steel.opacity(0.45))
-                        }
-                        .frame(height: 120)
+                let elevation = positions.compactMap { p in p.elevationM.map { TLPoint(x: p.timestamp, y: $0) } }
+                if elevation.count > 5, let lo = elevation.map(\.y).min(), let hi = elevation.map(\.y).max() {
+                    Card(title: "Elevation", symbol: "mountain.2", lightbar: false,
+                         aside: AnyView(ChartUnit(text: "\(f.elevation(lo)) – \(f.elevation(hi))"))) {
+                        TLLineChart(points: elevation, color: TL.Palette.steel, markMax: false,
+                                    yDomain: (lo - 10)...(hi + 10), height: 90)
                     }
                 }
             }

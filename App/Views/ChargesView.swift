@@ -24,14 +24,14 @@ struct ChargesView: View {
                             Text(c.geofenceID.flatMap { fences[$0] } ?? c.address ?? (c.isDCFast ? "Fast charger" : "Charging"))
                                 .font(TL.Typeface.bodyStrong)
                             Text("\(c.startDate.formatted(date: .abbreviated, time: .shortened)) · \(f.duration(minutes: c.durationMin))")
-                                .font(.caption).foregroundStyle(.secondary)
+                                .font(TL.Typeface.caption).foregroundStyle(TL.Palette.inkMuted)
                         }
                         Spacer()
                         VStack(alignment: .trailing, spacing: 3) {
                             Text("+\(f.energy(c.energyAddedKwh))").font(TL.Typeface.display(17, .medium)).monospacedDigit().foregroundStyle(TL.Palette.charge)
                             Text("\(c.startBatteryLevel.map(String.init) ?? "–") → \(c.endBatteryLevel.map(String.init) ?? "–")%")
-                                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                            if let cost = c.cost { Text(f.money(cost)).font(.caption).foregroundStyle(.secondary) }
+                                .font(TL.Typeface.dataSmall).foregroundStyle(TL.Palette.inkMuted)
+                            if let cost = c.cost { Text(f.money(cost)).font(TL.Typeface.caption).foregroundStyle(TL.Palette.inkMuted) }
                         }
                     }
                 }
@@ -60,6 +60,7 @@ struct ChargeDetailView: View {
     @Environment(AppModel.self) private var model
     let charge: ChargeSession
     @State private var samples: [ChargeSample] = []
+    @State private var tariff: Tariff?
 
     var body: some View {
         let f = Fmt(model.settings.units)
@@ -82,25 +83,31 @@ struct ChargeDetailView: View {
                     }
                 }
 
-                if samples.count > 2 {
-                    Card(title: "Charge curve", symbol: "chart.line.uptrend.xyaxis") {
-                        Chart {
-                            ForEach(samples.filter { $0.chargerPowerKw != nil }, id: \.timestamp) { s in
-                                LineMark(x: .value("Time", s.timestamp), y: .value("kW", s.chargerPowerKw!), series: .value("Series", "Power"))
-                                    .foregroundStyle(TL.Palette.charge)
-                                    .interpolationMethod(.monotone)
-                            }
+                let curve = samples.compactMap { s in s.chargerPowerKw.map { TLPoint(x: s.timestamp, y: $0) } }
+                if curve.count > 2 {
+                    Card(title: "Charge curve", symbol: "chart.line.uptrend.xyaxis", hero: true, aside: AnyView(ChartUnit(text: "kW"))) {
+                        TLLineChart(points: curve, color: TL.Palette.charge, liveEnd: charge.isOpen,
+                                    band: offPeakBand, height: 170, valueFormat: { "\(Int($0.rounded())) kW" })
+                        if let peak = charge.powerMaxKw {
+                            ChartNote(text: "Peak \(Int(peak.rounded())) kW\(charge.isDCFast ? ". Power tapers as the battery fills." : ".")")
                         }
-                        .chartYAxisLabel("kW")
-                        .frame(height: 180)
                     }
-                    Card(title: "Power vs battery level", symbol: "battery.100percent.bolt") {
-                        Chart(samples.filter { $0.chargerPowerKw != nil && $0.batteryLevel != nil }, id: \.timestamp) { s in
-                            PointMark(x: .value("SoC %", s.batteryLevel!), y: .value("kW", s.chargerPowerKw!))
-                                .foregroundStyle(TL.Palette.ion)
+                    let bySoc = samples.filter { $0.chargerPowerKw != nil && $0.batteryLevel != nil }
+                    if bySoc.count > 2 {
+                        Card(title: "Power vs battery level", symbol: "battery.100percent.bolt", lightbar: false, aside: AnyView(ChartUnit(text: "kW · %"))) {
+                            Chart(bySoc, id: \.timestamp) { s in
+                                PointMark(x: .value("Battery", s.batteryLevel!), y: .value("kW", s.chargerPowerKw!))
+                                    .symbolSize(30)
+                                    .foregroundStyle(TL.Palette.ion.opacity(0.3))
+                                PointMark(x: .value("Battery", s.batteryLevel!), y: .value("kW", s.chargerPowerKw!))
+                                    .symbol(.circle.strokeBorder(lineWidth: 1))
+                                    .symbolSize(30)
+                                    .foregroundStyle(TL.Palette.ion)
+                            }
+                            .chartXScale(domain: 0...100)
+                            .tlChartAxes(xCount: 5)
+                            .frame(height: 150)
                         }
-                        .chartXScale(domain: 0...100)
-                        .frame(height: 180)
                     }
                 }
             }
@@ -113,7 +120,22 @@ struct ChargeDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task(id: model.dataVersion) {
             if let id = charge.id { samples = (try? await model.store.samples(sessionID: id)) ?? [] }
+            tariff = ((try? await model.store.geofences()) ?? []).first { $0.id == charge.geofenceID }?.tariff
         }
+    }
+
+    /// The geofence's off-peak window shown behind the curve, when it overlaps the session.
+    private var offPeakBand: (from: Date, to: Date, label: String)? {
+        guard let w = tariff?.windows.first, let end = charge.endDate ?? samples.last?.timestamp else { return nil }
+        let cal = Calendar.current
+        let day = cal.startOfDay(for: charge.startDate)
+        var from = day.addingTimeInterval(Double(w.startMinute) * 60)
+        var to = day.addingTimeInterval(Double(w.endMinute) * 60)
+        if to <= from { to = to.addingTimeInterval(86_400) }
+        if from > end { return nil }
+        from = max(from, charge.startDate)
+        to = min(to, end)
+        return to > from ? (from, to, "Off-peak") : nil
     }
 
     private var rangeAdded: Double? {
