@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1a1e22"/><stop offset="1" stop-color="#0a0c0e"/></linearGradient>
+    <linearGradient id="s" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#d4dade"/><stop offset="1" stop-color="#8a939b"/></linearGradient>
+    <filter id="glow" x="-20%" y="-400%" width="140%" height="900%"><feGaussianBlur stdDeviation="14"/></filter>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#g)"/>
+  <polygon points="120,640 120,560 600,382 904,500 904,640" fill="url(#s)"/>
+  <polygon points="600,382 904,500 904,640 716,640" fill="#4a535c"/>
+  <rect x="120" y="700" width="784" height="18" fill="#4cc9ff" filter="url(#glow)" opacity="0.9"/>
+  <rect x="120" y="703" width="784" height="12" fill="#e9f8ff"/>
+</svg>

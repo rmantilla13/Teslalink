@@ -16,10 +16,15 @@ The logger, database and charts all run inside the app.
 - Multiple cars, metric/imperial units, notifications, JSON export. Read-only: it never
   sends commands to your car.
 
+## Design
+
+Stainless steel, cut corners and a single strip of light. Tokens and components are in `App/Design/`; see [design/README.md](design/README.md) for the full design system.
+
 ## Project layout
 
 ```
 App/                      SwiftUI app (iOS 18+, iPhone & iPad)
+  Design/                 Brand tokens, components, appearance
   Services/               AppModel, phone GPS tracker, Keychain, settings
   Views/                  Dashboard, Drives, Charging, Insights, Settings
 Packages/TeslaLinkCore/   Swift package with all logic, testable without Xcode

@@ -39,11 +39,7 @@ struct VehicleHeroView: View {
             .frame(height: 230)
             .animation(.spring, value: mode)
 
-            Picker("View", selection: $mode) {
-                ForEach(Mode.allCases, id: \.self) { Text($0.rawValue) }
-            }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: 220)
+            TLSegmented(options: Mode.allCases, selection: $mode) { $0.rawValue }
         }
     }
 
@@ -72,10 +68,14 @@ struct TopDownCarView: View {
             let w = h * 0.45
             let doors = snapshot?.doorsOpen ?? DoorState()
             ZStack {
+                // Light pool under the car, like a lit showroom floor.
+                Ellipse()
+                    .fill(RadialGradient(colors: [TL.Palette.lightbar.opacity(0.18), .clear], center: .center, startRadius: 0, endRadius: w))
+                    .frame(width: w * 2.2, height: h * 1.05)
                 // Wheels
                 ForEach(WheelPosition.allCases, id: \.self) { pos in
-                    RoundedRectangle(cornerRadius: w * 0.05)
-                        .fill(Color.primary.opacity(0.85))
+                    Rectangle()
+                        .fill(TL.Palette.steelDeep)
                         .frame(width: w * 0.14, height: h * 0.15)
                         .offset(x: pos.isLeft ? -w * 0.48 : w * 0.48, y: pos.isFront ? -h * 0.29 : h * 0.29)
                     pressureLabel(pos)
@@ -86,13 +86,13 @@ struct TopDownCarView: View {
                 CarBodyShape()
                     .fill(LinearGradient(colors: [paint.opacity(0.95), paint.opacity(0.75), paint.opacity(0.95)],
                                          startPoint: .leading, endPoint: .trailing))
-                    .overlay(CarBodyShape().stroke(Color.primary.opacity(0.25), lineWidth: 1))
+                    .overlay(CarBodyShape().stroke(TL.Palette.lightbar.opacity(0.5), lineWidth: 1))
                     .frame(width: w, height: h)
-                    .shadow(color: .black.opacity(0.25), radius: 10, y: 6)
+                    .shadow(color: .black.opacity(0.4), radius: 20, y: 14)
 
                 // Glass roof
-                RoundedRectangle(cornerRadius: w * 0.18)
-                    .fill(LinearGradient(colors: [.black.opacity(0.75), .black.opacity(0.55)], startPoint: .top, endPoint: .bottom))
+                ChamferedRectangle(cut: w * 0.12)
+                    .fill(LinearGradient(colors: [.black.opacity(0.8), .black.opacity(0.55)], startPoint: .top, endPoint: .bottom))
                     .frame(width: w * 0.72, height: h * 0.48)
                     .offset(y: h * 0.02)
 
@@ -113,14 +113,14 @@ struct TopDownCarView: View {
                 VStack(spacing: 6) {
                     if let locked = snapshot?.locked {
                         Image(systemName: locked ? "lock.fill" : "lock.open.fill")
-                            .foregroundStyle(locked ? Color.white : Color.orange)
+                            .foregroundStyle(locked ? Color.white : TL.Palette.amber)
                     }
                     if snapshot?.sentryMode == true {
-                        Image(systemName: "eye.circle.fill").foregroundStyle(.red)
+                        Image(systemName: "eye.circle.fill").foregroundStyle(TL.Palette.taillight)
                             .opacity(pulse ? 1 : 0.4)
                     }
                     if let t = snapshot?.insideTempC {
-                        Text(Fmt(units).temperature(t)).font(.caption2.bold()).foregroundStyle(.white)
+                        Text(Fmt(units).temperature(t)).font(TL.Typeface.dataSmall).foregroundStyle(.white)
                     }
                 }
                 .font(.title3)
@@ -143,14 +143,14 @@ struct TopDownCarView: View {
         let v: Double? = switch pos { case .fl: t?.frontLeft; case .fr: t?.frontRight; case .rl: t?.rearLeft; case .rr: t?.rearRight }
         if let v {
             Text(Fmt(units).pressure(v))
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(v < 2.5 ? .orange : .secondary)
+                .font(TL.Typeface.dataSmall)
+                .foregroundStyle(v < 2.5 ? TL.Palette.amber : TL.Palette.inkMuted)
         }
     }
 
     private func door(open: Bool, left: Bool, front: Bool, w: CGFloat, h: CGFloat) -> some View {
-        Capsule()
-            .fill(open ? Color.red : Color.clear)
+        Rectangle()
+            .fill(open ? TL.Palette.taillight : Color.clear)
             .frame(width: w * 0.06, height: h * 0.17)
             .rotationEffect(.degrees(open ? (left ? -28 : 28) : 0), anchor: .top)
             .offset(x: (left ? -1 : 1) * w * (open ? 0.6 : 0.5), y: front ? -h * 0.06 : h * 0.13)
@@ -158,8 +158,8 @@ struct TopDownCarView: View {
     }
 
     private func trunk(open: Bool, front: Bool, w: CGFloat, h: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: w * 0.12)
-            .fill(open ? Color.red.opacity(0.85) : Color.white.opacity(0.08))
+        ChamferedRectangle(cut: w * 0.08)
+            .fill(open ? TL.Palette.taillight.opacity(0.9) : Color.white.opacity(0.08))
             .frame(width: w * 0.66, height: h * 0.14)
             .offset(y: (front ? -1 : 1) * h * (open ? 0.42 : 0.37))
             .animation(.spring(duration: 0.4), value: open)
@@ -170,9 +170,9 @@ struct TopDownCarView: View {
         let open = snapshot?.chargePortDoorOpen == true || charging
         if open {
             Circle()
-                .fill(charging ? Color.green : Color.white)
+                .fill(charging ? TL.Palette.charge : TL.Palette.lightbar)
                 .frame(width: w * 0.09, height: w * 0.09)
-                .shadow(color: charging ? .green : .clear, radius: pulse ? 10 : 2)
+                .shadow(color: charging ? TL.Palette.charge : .clear, radius: pulse ? 12 : 3)
                 .offset(x: -w * 0.5, y: h * 0.39)
         }
     }
@@ -210,33 +210,4 @@ struct CarBodyShape: Shape {
         p.closeSubpath()
         return p
     }
-}
-
-/// Ring gauge for state of charge.
-struct BatteryRing: View {
-    let level: Int?
-    let limit: Int?
-    let charging: Bool
-
-    var body: some View {
-        let v = Double(level ?? 0) / 100
-        ZStack {
-            Circle().stroke(Color.secondary.opacity(0.2), lineWidth: 12)
-            if let limit {
-                Circle().trim(from: 0, to: Double(limit) / 100)
-                    .stroke(Color.secondary.opacity(0.25), style: StrokeStyle(lineWidth: 12, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-            }
-            Circle().trim(from: 0, to: v)
-                .stroke(color(v), style: StrokeStyle(lineWidth: 12, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .animation(.easeOut(duration: 0.8), value: v)
-            VStack(spacing: 0) {
-                if charging { Image(systemName: "bolt.fill").foregroundStyle(.green).font(.caption) }
-                Text(level.map { "\($0)%" } ?? "–").font(.title2.bold().monospacedDigit())
-            }
-        }
-    }
-
-    private func color(_ v: Double) -> Color { v < 0.2 ? .red : v < 0.35 ? .orange : .green }
 }

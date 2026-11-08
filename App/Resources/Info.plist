@@ -31,6 +31,15 @@
 	<string>$(TESLA_CLIENT_SECRET)</string>
 	<key>TeslaRedirectURI</key>
 	<string>$(TESLA_REDIRECT_URI)</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Fonts/ChakraPetch-Medium.ttf</string>
+		<string>Fonts/ChakraPetch-SemiBold.ttf</string>
+		<string>Fonts/Barlow-Regular.ttf</string>
+		<string>Fonts/Barlow-Medium.ttf</string>
+		<string>Fonts/Barlow-SemiBold.ttf</string>
+		<string>Fonts/IBMPlexMono-Medium.ttf</string>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
@@ -45,7 +54,10 @@
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Allow "Always" so TeslaLink can notice when a drive starts and log it without you opening the app.</string>
 	<key>UILaunchScreen</key>
-	<dict/>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+	</dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

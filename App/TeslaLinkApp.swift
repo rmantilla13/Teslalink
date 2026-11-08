@@ -6,6 +6,8 @@ struct TeslaLinkApp: App {
     @State private var model = AppModel()
     @Environment(\.scenePhase) private var scenePhase
 
+    init() { Appearance.apply() }
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -36,6 +38,7 @@ struct RootView: View {
                     Tab("Settings", systemImage: "gearshape", value: "settings") { NavigationStack { SettingsView() } }
                 }
                 .tabViewStyle(.sidebarAdaptable)
+                .tint(TL.Palette.ion)
             } else {
                 NavigationStack { OnboardingView() }
             }

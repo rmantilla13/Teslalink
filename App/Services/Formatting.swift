@@ -59,12 +59,12 @@ struct Fmt {
 extension LoggerState {
     var color: Color {
         switch self {
-        case .driving: .blue
-        case .charging: .green
-        case .updating: .orange
-        case .asleep, .suspended: .indigo
-        case .offline: .gray
-        case .online, .start: .teal
+        case .driving: TL.Palette.ion
+        case .charging: TL.Palette.charge
+        case .updating: TL.Palette.amber
+        case .asleep, .suspended: TL.Palette.sleep
+        case .offline: TL.Palette.edgeStrong
+        case .online, .start: TL.Palette.steel
         }
     }
 

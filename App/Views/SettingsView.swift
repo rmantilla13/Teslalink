@@ -61,6 +61,7 @@ struct SettingsView: View {
                 NavigationLink("About & licenses") { AboutView() }
             }
         }
+        .tlListStyle()
         .navigationTitle("Settings")
     }
 
@@ -117,6 +118,7 @@ struct GeofencesView: View {
             }
         }
         .overlay { if fences.isEmpty { ContentUnavailableView("No places", systemImage: "mappin", description: Text("Add Home to name drives and price home charging.")) } }
+        .tlListStyle()
         .navigationTitle("Places")
         .toolbar {
             Button { editing = newFence() } label: { Label("Add", systemImage: "plus") }

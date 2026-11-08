@@ -30,6 +30,7 @@ struct DrivesView: View {
                 }
             }
         }
+        .tlListStyle()
         .navigationTitle("Drives")
         .navigationDestination(for: Drive.self) { DriveDetailView(drive: $0) }
         .task(id: model.dataVersion) { await load() }
@@ -65,10 +66,10 @@ struct DriveRow: View {
             HStack {
                 Text(place(drive.startGeofenceID, drive.startAddress)) + Text("  →  ").foregroundStyle(.secondary) + Text(place(drive.endGeofenceID, drive.endAddress))
                 Spacer()
-                if drive.isOpen { Text("LIVE").font(.caption2.bold()).padding(3).background(.blue, in: Capsule()).foregroundStyle(.white) }
+                if drive.isOpen { Text("LIVE").tlLabel().foregroundStyle(TL.Palette.onIon).padding(.horizontal, 6).padding(.vertical, 2).background(ChamferedRectangle(cut: 4).fill(TL.Palette.ion)) }
                 if drive.isInferred { Image(systemName: "questionmark.circle").foregroundStyle(.secondary).help("Reconstructed: the app wasn't running during this drive") }
             }
-            .font(.subheadline.weight(.medium))
+            .font(TL.Typeface.bodyStrong)
             .lineLimit(1)
             HStack(spacing: 14) {
                 Label(drive.startDate.formatted(date: .omitted, time: .shortened), systemImage: "clock")
@@ -76,8 +77,8 @@ struct DriveRow: View {
                 Label(f.duration(minutes: drive.durationMin), systemImage: "timer")
                 if let e = drive.efficiencyWhPerKm { Label(f.efficiency(whPerKm: e), systemImage: "leaf") }
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            .font(TL.Typeface.caption)
+            .foregroundStyle(TL.Palette.inkMuted)
             .labelStyle(.titleAndIcon)
         }
         .padding(.vertical, 2)
@@ -99,7 +100,7 @@ struct DriveDetailView: View {
     var body: some View {
         let f = Fmt(model.settings.units)
         ScrollView {
-            VStack(spacing: 16) {
+            VStack(spacing: TL.Space.s6) {
                 Map {
                     ForEach(Array(segments.enumerated()), id: \.offset) { _, seg in
                         MapPolyline(coordinates: seg.coords).stroke(seg.color, style: StrokeStyle(lineWidth: 5, lineCap: .round))
@@ -108,10 +109,9 @@ struct DriveDetailView: View {
                     if let b = positions.last { Marker("End", systemImage: "flag.checkered", coordinate: b.coordinate).tint(.red) }
                 }
                 .frame(height: 320)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .clipShape(ChamferedRectangle(cut: TL.Chamfer.lg))
 
-                Picker("Color by", selection: $colorBy) { ForEach(ColorBy.allCases, id: \.self) { Text($0.rawValue) } }
-                    .pickerStyle(.segmented)
+                TLSegmented(options: ColorBy.allCases, selection: $colorBy) { $0.rawValue }
 
                 Card(title: "Summary", symbol: "list.bullet.rectangle") {
                     Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 10) {
@@ -127,7 +127,7 @@ struct DriveDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     if drive.isInferred {
                         Label("Reconstructed from before/after readings; the route and timing are approximate.", systemImage: "info.circle")
-                            .font(.footnote).foregroundStyle(.secondary)
+                            .font(TL.Typeface.caption).foregroundStyle(TL.Palette.inkMuted)
                     }
                 }
 
@@ -135,8 +135,9 @@ struct DriveDetailView: View {
                     Card(title: "Speed", symbol: "speedometer") {
                         Chart(positions.filter { $0.speedKmh != nil }, id: \.timestamp) {
                             AreaMark(x: .value("Time", $0.timestamp), y: .value(f.speedUnit, f.km($0.speedKmh!)))
-                                .foregroundStyle(.blue.gradient.opacity(0.4))
+                                .foregroundStyle(TL.Palette.ion.opacity(0.25))
                             LineMark(x: .value("Time", $0.timestamp), y: .value(f.speedUnit, f.km($0.speedKmh!)))
+                                .foregroundStyle(TL.Palette.ion)
                         }
                         .frame(height: 160)
                     }
@@ -145,7 +146,7 @@ struct DriveDetailView: View {
                     Card(title: "Power", symbol: "bolt") {
                         Chart(positions.filter { $0.powerKw != nil }, id: \.timestamp) {
                             BarMark(x: .value("Time", $0.timestamp), y: .value("kW", $0.powerKw!))
-                                .foregroundStyle($0.powerKw! < 0 ? Color.green : Color.orange)
+                                .foregroundStyle($0.powerKw! < 0 ? TL.Palette.charge : TL.Palette.ion)
                         }
                         .frame(height: 140)
                     }
@@ -153,16 +154,17 @@ struct DriveDetailView: View {
                 if positions.filter({ $0.elevationM != nil }).count > 5 {
                     Card(title: "Elevation", symbol: "mountain.2") {
                         Chart(positions.filter { $0.elevationM != nil }, id: \.timestamp) {
-                            AreaMark(x: .value("Time", $0.timestamp), y: .value("m", $0.elevationM!)).foregroundStyle(.brown.gradient.opacity(0.5))
+                            AreaMark(x: .value("Time", $0.timestamp), y: .value("m", $0.elevationM!)).foregroundStyle(TL.Palette.steel.opacity(0.45))
                         }
                         .frame(height: 120)
                     }
                 }
             }
-            .padding()
+            .padding(TL.Space.s4)
             .frame(maxWidth: 1000)
             .frame(maxWidth: .infinity)
         }
+        .background(TL.Palette.ground)
         .navigationTitle(drive.startDate.formatted(date: .abbreviated, time: .shortened))
         .navigationBarTitleDisplayMode(.inline)
         .task(id: model.dataVersion) {

@@ -10,36 +10,40 @@ struct OnboardingView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 28) {
-                TopDownCarView(snapshot: nil, paint: .paint("deepblue"))
-                    .frame(height: 260)
-                    .padding(.top, 24)
-                VStack(spacing: 10) {
-                    Text("TeslaLink").font(.largeTitle.bold())
-                    Text("Your drives, charges and battery health, logged and analysed entirely on this device.")
+                TeslaLinkMark()
+                    .frame(width: 120)
+                    .padding(.top, TL.Space.s12)
+                VStack(spacing: TL.Space.s3) {
+                    Text("TeslaLink").font(TL.Typeface.display(44)).foregroundStyle(TL.Palette.ink)
+                    Text("Drives, charging and battery health, logged on your iPhone.")
+                        .font(TL.Typeface.body)
                         .multilineTextAlignment(.center)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(TL.Palette.inkMuted)
                 }
+                TopDownCarView(snapshot: nil, paint: TL.Palette.steel)
+                    .frame(height: 220)
                 VStack(alignment: .leading, spacing: 14) {
                     Label("No server, no Grafana. One database on your phone.", systemImage: "iphone")
                     Label("Read-only access. TeslaLink never sends commands to your car.", systemImage: "lock.shield")
                     Label("Lets your car sleep, like a good logger should.", systemImage: "moon.zzz")
                 }
+                .font(TL.Typeface.body)
+                .foregroundStyle(TL.Palette.ink)
                 .frame(maxWidth: 420, alignment: .leading)
 
                 if model.settings.fleetConfig == nil {
                     Text("First add the client ID of your Tesla developer app (developer.tesla.com) in Settings.")
-                        .font(.footnote).foregroundStyle(.orange).multilineTextAlignment(.center)
+                        .font(TL.Typeface.caption).foregroundStyle(TL.Palette.amber).multilineTextAlignment(.center)
                     NavigationLink("Developer app settings") { DeveloperAppSettingsView() }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.tlSecondary)
                 } else {
                     Button {
                         Task { await signIn() }
                     } label: {
                         Label(busy ? "Signing in…" : "Sign in with Tesla", systemImage: "person.badge.key")
-                            .frame(maxWidth: 360)
+                            .frame(maxWidth: 320)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
+                    .buttonStyle(.tlPrimary)
                     .disabled(busy)
                     Picker("Region", selection: Binding(get: { model.settings.region }, set: { model.settings.region = $0 })) {
                         ForEach(FleetRegion.allCases, id: \.self) { Text($0.displayName).tag($0) }
@@ -47,9 +51,10 @@ struct OnboardingView: View {
                     NavigationLink("Developer app settings") { DeveloperAppSettingsView() }.font(.footnote)
                 }
             }
-            .padding()
+            .padding(TL.Space.s4)
             .frame(maxWidth: .infinity)
         }
+        .background(TL.Palette.ground)
     }
 
     private func signIn() async {

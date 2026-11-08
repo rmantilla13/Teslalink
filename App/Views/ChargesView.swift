@@ -19,16 +19,16 @@ struct ChargesView: View {
                     HStack(spacing: 12) {
                         Image(systemName: c.isDCFast ? "bolt.circle.fill" : "powerplug.fill")
                             .font(.title2)
-                            .foregroundStyle(c.isDCFast ? .orange : .green)
+                            .foregroundStyle(c.isDCFast ? TL.Palette.amber : TL.Palette.charge)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(c.geofenceID.flatMap { fences[$0] } ?? c.address ?? (c.isDCFast ? "Fast charger" : "Charging"))
-                                .font(.subheadline.weight(.medium))
+                                .font(TL.Typeface.bodyStrong)
                             Text("\(c.startDate.formatted(date: .abbreviated, time: .shortened)) · \(f.duration(minutes: c.durationMin))")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
                         VStack(alignment: .trailing, spacing: 3) {
-                            Text("+\(f.energy(c.energyAddedKwh))").font(.subheadline.monospacedDigit())
+                            Text("+\(f.energy(c.energyAddedKwh))").font(TL.Typeface.display(17, .medium)).monospacedDigit().foregroundStyle(TL.Palette.charge)
                             Text("\(c.startBatteryLevel.map(String.init) ?? "–") → \(c.endBatteryLevel.map(String.init) ?? "–")%")
                                 .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                             if let cost = c.cost { Text(f.money(cost)).font(.caption).foregroundStyle(.secondary) }
@@ -38,6 +38,7 @@ struct ChargesView: View {
             }
             .onDelete { idx in Task { await delete(idx.map { charges[$0] }) } }
         }
+        .tlListStyle()
         .navigationTitle("Charging")
         .navigationDestination(for: ChargeSession.self) { ChargeDetailView(charge: $0) }
         .task(id: model.dataVersion) { await load() }
@@ -63,10 +64,10 @@ struct ChargeDetailView: View {
     var body: some View {
         let f = Fmt(model.settings.units)
         ScrollView {
-            VStack(spacing: 16) {
+            VStack(spacing: TL.Space.s6) {
                 Card(title: "Session", symbol: "bolt.fill") {
                     Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 10) {
-                        GridRow { Metric(label: "Energy added", value: f.energy(charge.energyAddedKwh)); Metric(label: "From the wall", value: f.energy(charge.energyUsedKwh)) }
+                        GridRow { Metric(label: "Energy added", value: f.energy(charge.energyAddedKwh), tone: TL.Palette.charge); Metric(label: "From the wall", value: f.energy(charge.energyUsedKwh)) }
                         GridRow { Metric(label: "Efficiency", value: charge.chargingEfficiency.map { "\(Int(($0 * 100).rounded()))%" } ?? "–")
                                   Metric(label: "Cost", value: f.money(charge.cost)) }
                         GridRow { Metric(label: "Battery", value: "\(charge.startBatteryLevel.map(String.init) ?? "–")% → \(charge.endBatteryLevel.map(String.init) ?? "–")%")
@@ -77,7 +78,7 @@ struct ChargeDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     if charge.energyUsedKwh == nil, charge.sampleCount > 0 {
                         Label("Wall energy needs frequent samples. Keep the app open while charging for a full curve.", systemImage: "info.circle")
-                            .font(.footnote).foregroundStyle(.secondary)
+                            .font(TL.Typeface.caption).foregroundStyle(TL.Palette.inkMuted)
                     }
                 }
 
@@ -86,7 +87,7 @@ struct ChargeDetailView: View {
                         Chart {
                             ForEach(samples.filter { $0.chargerPowerKw != nil }, id: \.timestamp) { s in
                                 LineMark(x: .value("Time", s.timestamp), y: .value("kW", s.chargerPowerKw!), series: .value("Series", "Power"))
-                                    .foregroundStyle(.orange)
+                                    .foregroundStyle(TL.Palette.charge)
                                     .interpolationMethod(.monotone)
                             }
                         }
@@ -96,17 +97,18 @@ struct ChargeDetailView: View {
                     Card(title: "Power vs battery level", symbol: "battery.100percent.bolt") {
                         Chart(samples.filter { $0.chargerPowerKw != nil && $0.batteryLevel != nil }, id: \.timestamp) { s in
                             PointMark(x: .value("SoC %", s.batteryLevel!), y: .value("kW", s.chargerPowerKw!))
-                                .foregroundStyle(.green)
+                                .foregroundStyle(TL.Palette.ion)
                         }
                         .chartXScale(domain: 0...100)
                         .frame(height: 180)
                     }
                 }
             }
-            .padding()
+            .padding(TL.Space.s4)
             .frame(maxWidth: 1000)
             .frame(maxWidth: .infinity)
         }
+        .background(TL.Palette.ground)
         .navigationTitle(charge.startDate.formatted(date: .abbreviated, time: .shortened))
         .navigationBarTitleDisplayMode(.inline)
         .task(id: model.dataVersion) {
