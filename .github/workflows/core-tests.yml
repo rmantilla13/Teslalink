@@ -1,0 +1,13 @@
+name: Core tests
+on:
+  push:
+  pull_request:
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    container: swift:6.0-noble
+    steps:
+      - uses: actions/checkout@v4
+      - run: apt-get update && apt-get install -y libsqlite3-dev
+      - run: swift test
+        working-directory: Packages/TeslaLinkCore

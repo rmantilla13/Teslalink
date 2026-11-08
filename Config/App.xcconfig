@@ -1,0 +1,9 @@
+// Shared build settings. Personal values live in Secrets.xcconfig (git-ignored).
+TESLALINK_BUNDLE_ID = com.example.teslalink
+TESLALINK_TEAM_ID =
+TESLA_CLIENT_ID =
+TESLA_CLIENT_SECRET =
+// xcconfig treats // as a comment: write https:/$()/... for URLs.
+TESLA_REDIRECT_URI = teslalink:/$()/auth/callback
+
+#include? "Secrets.xcconfig"
