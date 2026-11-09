@@ -5,6 +5,8 @@ import TeslaLinkCore
 struct ChargesView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.tabIsActive) private var tabIsActive
+    /// Set on the open Duo: the live card and rows select into the right pane instead of pushing.
+    @Environment(\.paneSelection) private var pane
     @State private var charges: [ChargeSession] = []
     @State private var fences: [RecordID: String] = [:]
 
@@ -14,20 +16,12 @@ struct ChargesView: View {
             LazyVStack(alignment: .leading, spacing: 14) {
                 ScreenHeader(title: "Charging")
                 if let live = charges.first(where: \.isOpen), let vin = model.selectedVehicle?.vin {
-                    NavigationLink { LiveChargeView(vin: vin, backTitle: "Charging") } label: {
-                        Card(title: "Charging now", hero: true) {
-                            HStack(spacing: TL.Space.s3) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("+" + f.energy(live.energyAddedKwh))
-                                        .font(TL.Typeface.display(28))
-                                        .monospacedDigit()
-                                        .foregroundStyle(TL.Palette.charge)
-                                    Text(f.power(model.status(for: vin).snapshot?.chargerPowerKw) + " · " + f.duration(minutes: live.durationMin) + " so far")
-                                        .font(TL.Typeface.caption).foregroundStyle(TL.Palette.inkMuted)
-                                }
-                                Spacer()
-                                Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TL.Palette.inkMuted)
-                            }
+                    Group {
+                        if let pane {
+                            Button { pane.liveCharge = true } label: { liveCard(live, vin: vin, f: f, selected: pane.liveCharge) }
+                                .accessibilityAddTraits(pane.liveCharge ? .isSelected : [])
+                        } else {
+                            NavigationLink { LiveChargeView(vin: vin, backTitle: "Charging") } label: { liveCard(live, vin: vin, f: f, selected: false) }
                         }
                     }
                     .buttonStyle(.plain)
@@ -46,8 +40,18 @@ struct ChargesView: View {
                     .padding(.horizontal, 2)
                     RowGroup {
                         ForEach(items) { c in
-                            NavigationLink(value: c) {
-                                ChargeRow(charge: c, place: c.geofenceID.flatMap { fences[$0] }, f: f).tlRow()
+                            let selected = pane.map { !$0.liveCharge && $0.charge?.id == c.id } ?? false
+                            let row = ChargeRow(charge: c, place: c.geofenceID.flatMap { fences[$0] }, f: f).tlRow(selected: selected)
+                            Group {
+                                if let pane {
+                                    Button {
+                                        pane.charge = c
+                                        pane.liveCharge = false
+                                    } label: { row }
+                                        .accessibilityAddTraits(selected ? .isSelected : [])
+                                } else {
+                                    NavigationLink(value: c) { row }
+                                }
                             }
                             .buttonStyle(.plain)
                             .contextMenu {
@@ -67,6 +71,54 @@ struct ChargesView: View {
         // Pauses while another tab is in front (PhoneRoot keeps this one alive).
         .task(id: tabIsActive ? model.dataVersion : -1) { if tabIsActive { await load() } }
         .refreshable { await load() }
+        .onChange(of: pane != nil, initial: true) { _, _ in syncSelection() }
+    }
+
+    /// The running session: energy so far and charger power, as a hero card.
+    private func liveCard(_ live: ChargeSession, vin: String, f: Fmt, selected: Bool) -> some View {
+        Card(title: "Charging now", hero: true) {
+            HStack(spacing: TL.Space.s3) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("+" + f.energy(live.energyAddedKwh))
+                        .font(TL.Typeface.display(28))
+                        .monospacedDigit()
+                        .foregroundStyle(TL.Palette.charge)
+                    Text(f.power(model.status(for: vin).snapshot?.chargerPowerKw) + " · " + f.duration(minutes: live.durationMin) + " so far")
+                        .font(TL.Typeface.caption).foregroundStyle(TL.Palette.inkMuted)
+                }
+                Spacer()
+                if pane == nil {
+                    Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TL.Palette.inkMuted)
+                }
+            }
+        }
+        .overlay(alignment: .leading) {
+            if selected {
+                Rectangle().fill(TL.Palette.ion).frame(width: 2).padding(.vertical, 18).tlGlow(radius: 6)
+            }
+        }
+    }
+
+    /// Open Duo: what the right pane shows. Defaults to the running session, else the newest
+    /// finished one; when the running session ends, it moves to that finished session.
+    private func syncSelection() {
+        guard let pane, !charges.isEmpty else { return }   // nothing loaded yet: keep the selection
+        let live = charges.first(where: \.isOpen)
+        let finished = charges.filter { !$0.isOpen }
+        if pane.liveCharge {
+            if live != nil { return }
+            pane.liveCharge = false
+            pane.charge = finished.first
+            return
+        }
+        if let current = pane.charge, let fresh = finished.first(where: { $0.id == current.id }) {
+            pane.charge = fresh
+        } else if live != nil {
+            pane.liveCharge = true
+            pane.charge = nil
+        } else {
+            pane.charge = finished.first
+        }
     }
 
     private var groupedByMonth: [(Date, [ChargeSession])] {
@@ -80,6 +132,7 @@ struct ChargesView: View {
         guard let vin = model.selectedVehicle?.vin else { return }
         charges = (try? await model.store.charges(vin: vin, limit: 500)) ?? []
         fences = Dictionary(uniqueKeysWithValues: ((try? await model.store.geofences()) ?? []).compactMap { g in g.id.map { ($0, g.name) } })
+        syncSelection()
     }
 
     private func delete(_ items: [ChargeSession]) async {
@@ -125,6 +178,10 @@ struct ChargeRow: View {
 struct ChargeDetailView: View {
     @Environment(AppModel.self) private var model
     let charge: ChargeSession
+    /// The back link's title; nil in the open Duo's right pane, where there's nothing to go back to.
+    var backTitle: String? = "Charging"
+    @Environment(\.paneSelection) private var pane
+    @Environment(\.dismiss) private var dismiss
     @State private var samples: [ChargeSample] = []
     @State private var tariff: Tariff?
     @State private var placeName: String?
@@ -133,7 +190,7 @@ struct ChargeDetailView: View {
         let f = Fmt(model.settings.units)
         ScrollView {
             VStack(spacing: TL.Space.s4) {
-                ScreenHeader(back: "Charging",
+                ScreenHeader(back: backTitle,
                              label: charge.startDate.formatted(.dateTime.weekday(.abbreviated).day().month().hour().minute()),
                              title: placeName ?? charge.address ?? (charge.isDCFast ? "Fast charger" : "Charging"),
                              titleSize: 30)
@@ -188,6 +245,14 @@ struct ChargeDetailView: View {
             .frame(maxWidth: .infinity)
         }
         .tlScreen()
+        .onChange(of: pane != nil, initial: true) { _, inPanes in
+            // Unfolded while this session was pushed on the outer screen: hand it to the right pane.
+            if inPanes, backTitle != nil, let pane {
+                pane.charge = charge
+                pane.liveCharge = false
+                dismiss()
+            }
+        }
         .task(id: model.dataVersion) {
             if let id = charge.id { samples = (try? await model.store.samples(sessionID: id)) ?? [] }
             let fence = ((try? await model.store.geofences()) ?? []).first { $0.id == charge.geofenceID }

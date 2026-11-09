@@ -6,6 +6,8 @@ import TeslaLinkCore
 struct DrivesView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.tabIsActive) private var tabIsActive
+    /// Set on the open Duo: a row selects into the right pane instead of pushing.
+    @Environment(\.paneSelection) private var pane
     @State private var drives: [Drive] = []
     @State private var fences: [RecordID: String] = [:]
 
@@ -42,9 +44,15 @@ struct DrivesView: View {
                     .padding(.horizontal, 2)
                     RowGroup {
                         ForEach(items) { d in
-                            NavigationLink(value: d) {
-                                DriveRow(drive: d, fences: fences, f: f, typicalWhPerKm: typical)
-                                    .tlRow(highlight: d.isOpen ? TL.Palette.ion : nil)
+                            let row = DriveRow(drive: d, fences: fences, f: f, typicalWhPerKm: typical)
+                                .tlRow(highlight: d.isOpen ? TL.Palette.ion : nil, selected: pane?.drive?.id == d.id)
+                            Group {
+                                if let pane {
+                                    Button { pane.drive = d } label: { row }
+                                        .accessibilityAddTraits(pane.drive?.id == d.id ? .isSelected : [])
+                                } else {
+                                    NavigationLink(value: d) { row }
+                                }
                             }
                             .buttonStyle(.plain)
                             .contextMenu {
@@ -64,6 +72,14 @@ struct DrivesView: View {
         // Pauses while another tab is in front (PhoneRoot keeps this one alive).
         .task(id: tabIsActive ? model.dataVersion : -1) { if tabIsActive { await load() } }
         .refreshable { await load() }
+        .onChange(of: pane != nil, initial: true) { _, _ in syncSelection() }
+    }
+
+    /// Open Duo: keep the right pane on a current copy of the selected drive (it may still be
+    /// growing, or deleted), defaulting to the newest.
+    private func syncSelection() {
+        guard let pane, !drives.isEmpty else { return }   // nothing loaded yet: keep the selection
+        pane.drive = drives.first { $0.id == pane.drive?.id } ?? drives.first
     }
 
     private func dayTitle(_ day: Date) -> String {
@@ -84,6 +100,7 @@ struct DrivesView: View {
         guard let vin = model.selectedVehicle?.vin else { return }
         drives = (try? await model.store.drives(vin: vin, limit: 500)) ?? []
         fences = Dictionary(uniqueKeysWithValues: ((try? await model.store.geofences()) ?? []).compactMap { g in g.id.map { ($0, g.name) } })
+        syncSelection()
     }
 
     private func delete(_ items: [Drive]) async {
@@ -160,6 +177,10 @@ struct DriveRow: View {
 struct DriveDetailView: View {
     @Environment(AppModel.self) private var model
     let drive: Drive
+    /// The back link's title; nil where there's nothing to go back to (the open Duo's right pane).
+    var backTitle: String? = "Drives"
+    @Environment(\.paneSelection) private var pane
+    @Environment(\.dismiss) private var dismiss
     @State private var positions: [Position] = []
     @State private var fences: [RecordID: String] = [:]
     @State private var colorBy: ColorBy = .speed
@@ -193,6 +214,14 @@ struct DriveDetailView: View {
             .frame(maxWidth: .infinity)
         }
         .tlScreen()
+        .onChange(of: pane != nil, initial: true) { _, inPanes in
+            // The Duo unfolded while this drive was pushed on the outer screen: show it in the
+            // right pane and go back to the list on the left.
+            if inPanes, backTitle != nil, let pane {
+                pane.drive = drive
+                dismiss()
+            }
+        }
         .task(id: model.dataVersion) {
             if let id = drive.id { positions = (try? await model.store.positions(driveID: id)) ?? [] }
             fences = Dictionary(uniqueKeysWithValues: ((try? await model.store.geofences()) ?? []).compactMap { g in g.id.map { ($0, g.name) } })
@@ -231,7 +260,7 @@ struct DriveDetailView: View {
     }
 
     private var header: some View {
-        ScreenHeader(back: "Drives", label: dateLine, title: routeTitle, titleSize: 30)
+        ScreenHeader(back: backTitle, label: dateLine, title: routeTitle, titleSize: 30)
     }
 
     private var topSpeedPosition: Position? {

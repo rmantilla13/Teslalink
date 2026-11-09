@@ -27,16 +27,57 @@ struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var tab = DebugLaunch.section ?? .car
+    @State private var hinge: HingeState = HingeObserver.isSupported ? .unknown : .none
+    @State private var geometry = PaneGeometry()
+    @State private var pane = PaneSelection()
+
+    /// Two panes split at the hinge: the Duo open in landscape. Until the hinge reports (the
+    /// first frame), a wide phone screen is taken to be an open Duo, the main target.
+    private var duoPanes: Bool {
+        guard geometry.isLandscape else { return false }
+        switch hinge {
+        case .open: return true
+        case .unknown: return UIDevice.current.userInterfaceIdiom == .phone && geometry.size.width > 800
+        case .none, .closed: return false
+        }
+    }
+
+    /// The iPad layout. Never on a device with a hinge: while the Duo unfolds, its width turns
+    /// regular a moment before the hinge reports open, and a sidebar there would rebuild the
+    /// phone stacks (losing the tab's place). The Duo opened in portrait stays on the phone layout.
+    private var sidebar: Bool {
+        guard sizeClass == .regular else { return false }
+        switch hinge {
+        case .none: return true
+        case .unknown: return UIDevice.current.userInterfaceIdiom == .pad   // an iPad has no hinge
+        case .closed, .open: return false
+        }
+    }
 
     var body: some View {
-        Group {
-            if model.isSignedIn && sizeClass == .regular {
-                SidebarRoot()
-            } else if model.isSignedIn {
-                PhoneRoot(tab: $tab)
-            } else {
+        ZStack {
+            if !model.isSignedIn {
                 NavigationStack { OnboardingView() }
+            } else if sidebar {
+                SidebarRoot()
+            } else {
+                // PhoneRoot keeps its place when the Duo folds or unfolds, so the selected tab
+                // and any pushed screen survive the change.
+                HStack(spacing: 0) {
+                    PhoneRoot(tab: $tab)
+                        .frame(width: duoPanes ? geometry.hingeX : nil)
+                    if duoPanes {
+                        Rectangle().fill(TL.Palette.edge).frame(width: 1).ignoresSafeArea()
+                        CompanionPane(tab: $tab).frame(maxWidth: .infinity)
+                    }
+                }
+                .environment(\.paneSelection, duoPanes ? pane : nil)
             }
+        }
+        .onGeometryChange(for: PaneGeometry.self) { PaneGeometry(size: $0.size, insets: $0.safeAreaInsets) } action: { geometry = $0 }
+        .background(HingeObserver(state: $hinge).frame(width: 0, height: 0).accessibilityHidden(true))
+        .overlay(alignment: .top) {
+            if DebugLaunch.geometry { GeometryReadout(geometry: geometry, hinge: hinge) }
         }
         .tint(TL.Palette.ion)
         .alert("Something went wrong", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {

@@ -123,14 +123,21 @@ struct RowGroup<Content: View>: View {
 
 extension View {
     /// One row in a `RowGroup`: steel face, optionally tinted (the live drive, a live charge).
-    func tlRow(highlight: Color? = nil) -> some View {
+    /// `selected` (the open Duo's list, showing in the right pane) raises the face to
+    /// `surface-2` with a glowing ion edge, like the iPad sidebar's current section.
+    func tlRow(highlight: Color? = nil, selected: Bool = false) -> some View {
         padding(.vertical, 12)
             .padding(.horizontal, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 ZStack {
-                    TL.Palette.surface1
+                    selected ? TL.Palette.surface2 : TL.Palette.surface1
                     if let highlight { highlight.opacity(0.08) }
+                }
+            }
+            .overlay(alignment: .leading) {
+                if selected {
+                    Rectangle().fill(TL.Palette.ion).frame(width: 2).padding(.vertical, 8).tlGlow(radius: 6)
                 }
             }
             .contentShape(Rectangle())

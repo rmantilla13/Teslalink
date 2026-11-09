@@ -5,8 +5,11 @@ import TeslaLinkCore
 struct LiveChargeView: View {
     @Environment(AppModel.self) private var model
     let vin: String
-    /// The screen this was opened from, for the back link ("Car", "Charging").
+    /// The screen this was opened from, for the back link ("Car", "Charging"); nil in the open
+    /// Duo's right pane.
     var backTitle: String?
+    @Environment(\.paneSelection) private var pane
+    @Environment(\.dismiss) private var dismiss
     @State private var session: ChargeSession?
     @State private var samples: [ChargeSample] = []
     @State private var placeName: String?
@@ -71,6 +74,13 @@ struct LiveChargeView: View {
             .frame(maxWidth: .infinity)
         }
         .tlScreen()
+        .onChange(of: pane != nil, initial: true) { _, inPanes in
+            // Unfolded while this was pushed on the outer screen: the right pane takes it over.
+            if inPanes, backTitle != nil, let pane {
+                pane.liveCharge = true
+                dismiss()
+            }
+        }
         .task(id: model.dataVersion) { await load() }
     }
 

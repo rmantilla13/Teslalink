@@ -5,6 +5,8 @@ import TeslaLinkCore
 /// Car: the selected vehicle at a glance (Car artboard).
 struct DashboardView: View {
     @Environment(AppModel.self) private var model
+    /// Set on the open Duo, where the right pane carries live charging and the map.
+    @Environment(\.paneSelection) private var pane
 
     var body: some View {
         let vehicle = model.selectedVehicle
@@ -24,12 +26,13 @@ struct DashboardView: View {
 
                 VehicleHeroView(vehicle: vehicle, snapshot: s, units: model.settings.units)
 
-                if live.state == .charging, let vin = vehicle?.vin {
+                if live.state == .charging, let vin = vehicle?.vin, pane == nil {
                     NavigationLink { LiveChargeView(vin: vin, backTitle: "Car") } label: {
                         HStack(spacing: TL.Space.s2) {
                             StateBanner(live: live)
                             Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TL.Palette.inkMuted)
                         }
+                        .contentShape(Rectangle())   // the whole row, not just the chip and text, opens it
                     }
                     .buttonStyle(.plain)
                     .accessibilityHint("Shows the live charging session")
@@ -44,20 +47,8 @@ struct DashboardView: View {
                     VStack(spacing: TL.Space.s4) { batteryCard(s, f); climateCard(s, f) }
                 }
 
-                if let lat = s?.latitude, let lon = s?.longitude {
-                    Card(title: "Location") {
-                        Map(initialPosition: .region(MKCoordinateRegion(center: .init(latitude: lat, longitude: lon),
-                                                                        latitudinalMeters: 800, longitudinalMeters: 800))) {
-                            Annotation(vehicle?.displayName ?? "Car", coordinate: .init(latitude: lat, longitude: lon)) {
-                                Image(systemName: "car.fill").padding(7).background(TL.Palette.ion, in: Circle()).foregroundStyle(TL.Palette.onIon).tlGlow()
-                                    .rotationEffect(.degrees((s?.heading ?? 0) - 90))
-                            }
-                        }
-                        .mapStyle(.standard(elevation: .flat, emphasis: .muted, pointsOfInterest: .excludingAll))
-                        .frame(height: 200)
-                        .clipShape(ChamferedRectangle(cut: TL.Chamfer.sm))
-                        .id("\(lat),\(lon)")
-                    }
+                if pane == nil, let s, s.latitude != nil {
+                    CarLocationCard(name: vehicle?.displayName, snapshot: s)
                 }
 
                 if let v = s?.softwareVersion {
@@ -133,6 +124,31 @@ struct DashboardView: View {
     /// Missing data is an en dash, never a guess (brand book).
     static func word(_ value: Bool?, yes: String, no: String) -> String {
         value.map { $0 ? yes : no } ?? "–"
+    }
+}
+
+/// Where the car is: a muted map with the car marker, heading-rotated.
+struct CarLocationCard: View {
+    let name: String?
+    let snapshot: VehicleSnapshot
+    var height: CGFloat = 200
+
+    var body: some View {
+        if let lat = snapshot.latitude, let lon = snapshot.longitude {
+            Card(title: "Location") {
+                Map(initialPosition: .region(MKCoordinateRegion(center: .init(latitude: lat, longitude: lon),
+                                                                latitudinalMeters: 800, longitudinalMeters: 800))) {
+                    Annotation(name ?? "Car", coordinate: .init(latitude: lat, longitude: lon)) {
+                        Image(systemName: "car.fill").padding(7).background(TL.Palette.ion, in: Circle()).foregroundStyle(TL.Palette.onIon).tlGlow()
+                            .rotationEffect(.degrees((snapshot.heading ?? 0) - 90))
+                    }
+                }
+                .mapStyle(.standard(elevation: .flat, emphasis: .muted, pointsOfInterest: .excludingAll))
+                .frame(height: height)
+                .clipShape(ChamferedRectangle(cut: TL.Chamfer.sm))
+                .id("\(lat),\(lon)")
+            }
+        }
     }
 }
 

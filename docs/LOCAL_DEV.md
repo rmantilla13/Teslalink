@@ -42,7 +42,10 @@ Re-run `xcodegen generate` whenever you add or remove files (sources come from `
 The main target is the **iPhone Duo** (owner, 2026-11-08): check layouts closed (outer
 screen) and open (inner screen) on an iPhone Duo simulator, which only the iOS 27.1 runtime
 offers. Switch posture with the Closed / Partially Open / Open buttons under the device in
-Device Hub. iPad stays supported. An iPhone 16e (390×844) matches the design artboards.
+Device Hub (`simctl` has no posture command). `xcrun simctl io <udid> screenshot` captures
+only the inner screen: black while closed, turned a quarter while open. The outer screen
+shows in the Device Hub window. iPad stays supported. An iPhone 16e (390×844) matches the
+design artboards.
 
 Debug builds take launch arguments for walkthroughs and screenshots, so you can skip taps:
 
@@ -51,7 +54,34 @@ xcrun simctl launch booted com.example.teslalink -TLDemo YES -TLTab drives
 ```
 
 `-TLDemo YES` runs demo mode for that launch only (not saved). `-TLTab` takes `car`,
-`drives`, `charges`, `stats` or `settings`.
+`drives`, `charges`, `stats` or `settings`. `-TLGeometry YES` adds a yellow strip with the
+content size, safe-area insets, hinge state and hinge position, for checking a new device or
+posture.
+
+### The Duo open
+
+Open or partially open in landscape, TeslaLink splits at the hinge. The left half is the
+phone app (sections and the tab bar, as on the outer screen). The right half goes with the
+current section:
+
+- Car: this week's numbers, recent drives and the map, or live charging while the car charges.
+- Drives and Charging: the drive or session picked on the left. Lists select instead of
+  pushing, and the newest one is picked to start.
+- Insights: battery health and parked drain, beside the overview. Both halves share the period.
+- Settings: Places.
+
+How it behaves:
+
+- Folding keeps the tab and goes back to its list.
+- Unfolding with a drive, charging session or live charging open on the outer screen moves
+  it to the right pane.
+- Open in portrait, the Duo keeps the phone layout (not designed yet).
+
+The code is in `App/Views/DuoPanes.swift`. The hinge is read with `UIHingeInteraction`,
+which needs the iOS 27.1 SDK. Older Xcode builds leave it out (CI's Xcode 26.3 among them),
+and their open Duo gets the iPad sidebar layout instead. The Duo reports its hinge about
+0.1 s after launch; a device that hasn't reported within half a second is taken to have none.
+There's no API for where the fold is, so the split assumes the hinge is centred.
 
 ## 5. Running on your iPhone
 
@@ -105,8 +135,12 @@ checked too.
   navigation bars, a flat steel tab bar (owner's choice over Liquid Glass), chamfered row
   groups instead of rounded `List` sections, no glyphs in panel headers. See
   `App/Design/Chrome.swift`.
-- Not done yet: a hinge-aware layout for the Duo's open inner screen. Today it uses the
-  iPad sidebar layout, so panels cross the fold.
+- Done: the open Duo splits at the hinge (see section 4). Checked closed, partially open
+  and open, and folding and unfolding with a screen pushed. For regressions, an iPhone 16e
+  (both orientations) and an iPad were checked on iOS 27.0, where the hinge code doesn't run.
+  The iOS 27.1 simulator runtime only offers the Duo, so an iPhone or iPad on 27.1 or later
+  is unchecked. The no-hinge fallback was checked by withholding the Duo's hinge reports.
+- Fixed: on Car, the gap between the Charging chip and "Updated…" didn't open live charging.
 - Not done yet: the iPad artboard's two-column dashboard (Tonight's charge, Recent drives).
 - Still unverified: real Tesla sign-in and real-car data (needs the Fleet API setup),
   background location relaunch, BGAppRefresh, and Keychain on a device.
