@@ -144,6 +144,8 @@ public struct Drive: Codable, Sendable, Identifiable, Hashable {
     public var energyUsedKwh: Double?
     /// True when reconstructed from sparse snapshots (app wasn't running during the drive).
     public var isInferred: Bool
+    /// A simplified route (lat, lon pairs, at most ~32) for list thumbnails.
+    public var routePreview: [RoutePoint]?
 
     public init(id: RecordID? = nil, vin: String, startDate: Date, isInferred: Bool = false) {
         self.id = id
@@ -163,6 +165,12 @@ public struct Drive: Codable, Sendable, Identifiable, Hashable {
         guard let d = distanceKm, let m = durationMin, m > 0 else { return nil }
         return d / (m / 60)
     }
+}
+
+public struct RoutePoint: Codable, Sendable, Hashable {
+    public var lat: Double
+    public var lon: Double
+    public init(lat: Double, lon: Double) { self.lat = lat; self.lon = lon }
 }
 
 public struct ChargeSession: Codable, Sendable, Identifiable, Hashable {

@@ -99,6 +99,24 @@ public actor LogStore {
             .first?[0].data.map { try decoder.decode(Drive.self, from: $0) }
     }
 
+    /// Closed drives with coordinates but no street address yet (newest first).
+    public func drivesMissingAddresses(limit: Int = 20) throws -> [Drive] {
+        let rows = try db.query("SELECT json FROM drives WHERE end_date IS NOT NULL ORDER BY start_date DESC LIMIT 500")
+        let drives: [Drive] = try rows.compactMap { row in try row[0].data.map { try decoder.decode(Drive.self, from: $0) } }
+        let missing = drives.filter { d in
+            let start = d.startAddress == nil && d.startLatitude != nil
+            let end = d.endAddress == nil && d.endLatitude != nil
+            return start || end
+        }
+        return Array(missing.prefix(limit))
+    }
+
+    public func chargesMissingAddresses(limit: Int = 20) throws -> [ChargeSession] {
+        let rows = try db.query("SELECT json FROM charges ORDER BY start_date DESC LIMIT 500")
+        let charges: [ChargeSession] = try rows.compactMap { row in try row[0].data.map { try decoder.decode(ChargeSession.self, from: $0) } }
+        return Array(charges.filter { $0.address == nil && $0.latitude != nil }.prefix(limit))
+    }
+
     public func deleteDrive(id: RecordID) throws {
         try db.run("DELETE FROM drives WHERE id = ?", [.int(id)])
     }

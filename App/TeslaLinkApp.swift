@@ -24,11 +24,14 @@ struct TeslaLinkApp: App {
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var tab = "car"
 
     var body: some View {
         Group {
-            if model.isSignedIn {
+            if model.isSignedIn && sizeClass == .regular {
+                SidebarRoot()
+            } else if model.isSignedIn {
                 // Bottom tabs on iPhone; on iPad this becomes a sidebar.
                 TabView(selection: $tab) {
                     Tab("Car", systemImage: "car.side.fill", value: "car") { NavigationStack { DashboardView() } }

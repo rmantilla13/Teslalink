@@ -35,8 +35,8 @@ struct StatsView: View {
 
         ScrollView {
             VStack(spacing: 16) {
-                Picker("Period", selection: $period) { ForEach(Period.allCases) { Text($0.rawValue).tag($0) } }
-                    .pickerStyle(.segmented)
+                TLSegmented(options: Period.allCases, selection: $period) { $0.rawValue }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: TL.Space.s3)], spacing: TL.Space.s3) {
                     StatTile(title: "Distance", value: f.distance(stats.distanceKm, digits: 0), symbol: "road.lanes")

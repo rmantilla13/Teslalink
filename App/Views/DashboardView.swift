@@ -16,7 +16,14 @@ struct DashboardView: View {
             VStack(spacing: TL.Space.s6) {
                 VehicleHeroView(vehicle: vehicle, snapshot: s, units: model.settings.units)
 
-                StateBanner(live: live)
+                if live.state == .charging, let vin = vehicle?.vin {
+                    NavigationLink { LiveChargeView(vin: vin) } label: {
+                        HStack { StateBanner(live: live); Image(systemName: "chevron.right").foregroundStyle(TL.Palette.inkMuted) }
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    StateBanner(live: live)
+                }
 
                 // Adapts: one column on iPhone, two side by side on iPad / landscape.
                 ViewThatFits(in: .horizontal) {

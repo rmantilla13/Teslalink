@@ -34,6 +34,8 @@ final class AppModel {
     private var loopTask: Task<Void, Never>?
     private(set) var isForeground = false
     let phone = PhoneDriveTracker()
+    private let addresses: AddressResolver
+    private var lastAddressRun = Date.distantPast
 
     init() {
         settings = AppSettings.load()
@@ -45,6 +47,7 @@ final class AppModel {
         } catch {
             fatalError("Could not open database: \(error)")
         }
+        addresses = AddressResolver(store: store)
         phone.onPositions = { [weak self] points in
             Task { await self?.ingestPhone(points) }
         }
@@ -195,6 +198,12 @@ final class AppModel {
             changed = true
         }
         if changed { vehicles = (try? await store.vehicles()) ?? vehicles }
+
+        // Street names for new drives and charges, a few at a time while the app is open.
+        if isForeground, Date().timeIntervalSince(lastAddressRun) > 60 {
+            lastAddressRun = Date()
+            if await addresses.run() { dataVersion += 1 }
+        }
     }
 
     /// Called by the system's background refresh. We get ~30 s; do one round and reschedule.

@@ -345,3 +345,50 @@ final class PhoneMatchAndImageTests: XCTestCase {
         XCTAssertTrue(url.absoluteString.contains("model=m3"))
     }
 }
+
+final class LiveAndPreviewTests: XCTestCase {
+    let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+
+    func testRoutePreviewIsBoundedAndKeepsEnds() throws {
+        let pts = (0..<500).map { i in RoutePoint(lat: 37 + Double(i) * 0.0005, lon: -122 + sin(Double(i) / 20) * 0.01) }
+        let p = try XCTUnwrap(RouteSimplifier.preview(pts))
+        XCTAssertLessThanOrEqual(p.count, 32)
+        XCTAssertGreaterThan(p.count, 4)
+        XCTAssertEqual(p.first, pts.first)
+        XCTAssertEqual(p.last, pts.last)
+    }
+
+    func testOpenDriveAndChargeShowRunningTotals() async throws {
+        let store = try LogStore.inMemory()
+        try await store.upsert(Vehicle(vin: "VIN", displayName: "Duo"))
+        func s(_ m: Double, shift: ShiftState?, odo: Double, charging: ChargingState = .disconnected, added: Double? = nil) -> VehicleSnapshot {
+            var x = VehicleSnapshot(vin: "VIN", timestamp: t0.addingTimeInterval(m * 60))
+            x.shiftState = shift; x.odometerKm = odo; x.latitude = 37 + odo / 1000; x.longitude = -122
+            x.batteryLevel = 70; x.ratedRangeKm = 350; x.powerKw = 0; x.chargingState = charging
+            x.chargeEnergyAddedKwh = added; x.chargerPowerKw = charging == .charging ? 50 : 0
+            return x
+        }
+        let car = ScriptedCar([
+            (.online, s(0, shift: .drive, odo: 1000)),
+            (.online, s(5, shift: .drive, odo: 1004)),
+            (.online, s(10, shift: .park, odo: 1007)),
+            (.online, s(11, shift: nil, odo: 1007, charging: .charging, added: 0)),
+            (.online, s(16, shift: nil, odo: 1007, charging: .charging, added: 4.2)),
+        ])
+        let logger = await VehicleLogger(vin: "VIN", source: car, store: store)
+        await logger.poll(now: t0, force: true)          // status
+        await logger.poll(now: t0, force: true)          // drive starts
+        await logger.poll(now: t0 + 300, force: true)    // still driving
+        let open = try await store.openDrive(vin: "VIN")
+        XCTAssertNil(open?.endDate, "an in-progress drive stays open")
+        XCTAssertEqual(open?.distanceKm ?? 0, 4, accuracy: 0.001, "distance so far is kept current")
+        await logger.poll(now: t0 + 600, force: true)    // park
+        await logger.poll(now: t0 + 660, force: true)    // charge starts
+        await logger.poll(now: t0 + 960, force: true)    // charging
+        let charge = try await store.openCharge(vin: "VIN")
+        XCTAssertNil(charge?.endDate)
+        XCTAssertEqual(charge?.energyAddedKwh, 4.2, "energy so far for the live screen")
+        let drive = try await store.drives(vin: "VIN").first
+        XCTAssertNotNil(drive?.routePreview)
+    }
+}

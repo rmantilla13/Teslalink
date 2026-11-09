@@ -4,14 +4,17 @@ import Foundation
 public enum DriveSummarizer {
     /// - Parameter efficiencyKwhPerKm: the car's derived consumption per rated km. When present,
     ///   energy used is computed from rated range lost, like TeslaMate does.
-    public static func summarize(_ drive: Drive, positions: [Position], efficiencyKwhPerKm: Double?) -> Drive {
+    /// - Parameter closing: false for a drive still in progress: running totals are filled in
+    ///   but `endDate` stays nil so the drive remains open.
+    public static func summarize(_ drive: Drive, positions: [Position], efficiencyKwhPerKm: Double?, closing: Bool = true) -> Drive {
         var d = drive
         let sorted = positions.sorted { $0.timestamp < $1.timestamp }
         guard let first = sorted.first, let last = sorted.last else { return d }
 
         d.startDate = min(d.startDate, first.timestamp)
-        d.endDate = d.endDate ?? last.timestamp
-        d.durationMin = (d.endDate!.timeIntervalSince(d.startDate)) / 60
+        if closing { d.endDate = d.endDate ?? last.timestamp }
+        d.durationMin = ((d.endDate ?? last.timestamp).timeIntervalSince(d.startDate)) / 60
+        d.routePreview = RouteSimplifier.preview(sorted.map { RoutePoint(lat: $0.latitude, lon: $0.longitude) })
         d.startLatitude = first.latitude
         d.startLongitude = first.longitude
         d.endLatitude = last.latitude
@@ -76,15 +79,16 @@ public enum ChargeSummarizer {
     /// (common on iOS where background polling is opportunistic).
     public static let maxIntegrationGap: TimeInterval = 5 * 60
 
-    public static func summarize(_ session: ChargeSession, samples: [ChargeSample], tariff: Tariff?) -> ChargeSession {
+    /// - Parameter closing: false for a session still charging: totals so far, `endDate` stays nil.
+    public static func summarize(_ session: ChargeSession, samples: [ChargeSample], tariff: Tariff?, closing: Bool = true) -> ChargeSession {
         var c = session
         let sorted = samples.sorted { $0.timestamp < $1.timestamp }
         c.sampleCount = sorted.count
         guard let first = sorted.first, let last = sorted.last else { return c }
 
         c.startDate = min(c.startDate, first.timestamp)
-        c.endDate = c.endDate ?? last.timestamp
-        c.durationMin = c.endDate!.timeIntervalSince(c.startDate) / 60
+        if closing { c.endDate = c.endDate ?? last.timestamp }
+        c.durationMin = (c.endDate ?? last.timestamp).timeIntervalSince(c.startDate) / 60
         c.startBatteryLevel = first.batteryLevel
         c.endBatteryLevel = sorted.last(where: { $0.batteryLevel != nil })?.batteryLevel
         c.startRatedRangeKm = first.ratedRangeKm

@@ -123,8 +123,14 @@ public actor VehicleLogger {
             try await store.save(d)
 
         case let .recordDrivePosition(s):
-            let driveID = try await store.openDrive(vin: vin)?.id
-            if let p = Position(snapshot: s, driveID: driveID) { try await store.insert(p) }
+            let open = try await store.openDrive(vin: vin)
+            if let p = Position(snapshot: s, driveID: open?.id) { try await store.insert(p) }
+            // Keep the open drive's running totals current for the live UI.
+            if var d = open, let id = d.id {
+                let eff = try await store.vehicle(vin: vin)?.efficiencyKwhPerKm
+                d = DriveSummarizer.summarize(d, positions: try await store.positions(driveID: id), efficiencyKwhPerKm: eff, closing: false)
+                try await store.save(d)
+            }
 
         case let .finishDrive(at):
             guard var d = try await store.openDrive(vin: vin), let id = d.id else { return }
@@ -158,8 +164,12 @@ public actor VehicleLogger {
             try await store.save(c)
 
         case let .recordChargeSample(s):
-            guard let id = try await store.openCharge(vin: vin)?.id else { return }
+            guard var c = try await store.openCharge(vin: vin), let id = c.id else { return }
             try await store.insert(ChargeSample(snapshot: s, sessionID: id))
+            // Energy, power and cost so far, for the live charging screen.
+            let tariff = try await store.geofences().first { $0.id == c.geofenceID }?.tariff
+            c = ChargeSummarizer.summarize(c, samples: try await store.samples(sessionID: id), tariff: tariff, closing: false)
+            try await store.save(c)
 
         case let .finishCharge(at):
             guard var c = try await store.openCharge(vin: vin), let id = c.id else { return }

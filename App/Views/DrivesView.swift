@@ -10,22 +10,40 @@ struct DrivesView: View {
 
     var body: some View {
         let f = Fmt(model.settings.units)
+        let week = drives.filter { !$0.isOpen && $0.startDate >= Calendar.current.date(byAdding: .day, value: -7, to: Date())! }
+        let weekStats = PeriodStats(drives: week, charges: [])
+        let typical = weekStats.efficiencyWhPerKm ?? PeriodStats(drives: drives.filter { !$0.isOpen }, charges: []).efficiencyWhPerKm
+
         List {
             if drives.isEmpty {
                 ContentUnavailableView("No drives yet", systemImage: "road.lanes",
                                        description: Text("Drives are logged automatically. Keep location set to Always for the most detail."))
+                    .listRowBackground(Color.clear)
+            } else {
+                Section {
+                    Card(title: "This week", symbol: "calendar") {
+                        HStack(alignment: .top, spacing: TL.Space.s6) {
+                            Metric(label: "Distance", value: f.distance(weekStats.distanceKm, digits: 0))
+                            Metric(label: "Energy", value: f.energy(weekStats.energyUsedKwh))
+                            Metric(label: "Average", value: f.efficiency(whPerKm: weekStats.efficiencyWhPerKm), tone: TL.Palette.charge)
+                        }
+                    }
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                }
             }
             ForEach(groupedByDay, id: \.0) { day, items in
                 Section {
                     ForEach(items) { d in
-                        NavigationLink(value: d) { DriveRow(drive: d, fences: fences, f: f) }
+                        NavigationLink(value: d) { DriveRow(drive: d, fences: fences, f: f, typicalWhPerKm: typical) }
+                            .listRowBackground(d.isOpen ? TL.Palette.ion.opacity(0.07) : TL.Palette.surface1)
                     }
                     .onDelete { idx in Task { await delete(idx.map { items[$0] }) } }
                 } header: {
-                    HStack {
-                        Text(day, format: .dateTime.weekday(.wide).day().month())
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(dayTitle(day)).tlLabel().foregroundStyle(TL.Palette.ink)
                         Spacer()
-                        Text(f.distance(items.compactMap(\.distanceKm).reduce(0, +)))
+                        Text(f.distance(items.compactMap(\.distanceKm).reduce(0, +))).font(TL.Typeface.mono(12)).foregroundStyle(TL.Palette.inkMuted)
                     }
                 }
             }
@@ -35,6 +53,13 @@ struct DrivesView: View {
         .navigationDestination(for: Drive.self) { DriveDetailView(drive: $0) }
         .task(id: model.dataVersion) { await load() }
         .refreshable { await load() }
+    }
+
+    private func dayTitle(_ day: Date) -> String {
+        let cal = Calendar.current
+        if cal.isDateInToday(day) { return "Today" }
+        if cal.isDateInYesterday(day) { return "Yesterday" }
+        return day.formatted(.dateTime.weekday(.wide).day().month())
     }
 
     private var groupedByDay: [(Date, [Drive])] {
@@ -60,28 +85,60 @@ struct DriveRow: View {
     let drive: Drive
     let fences: [RecordID: String]
     let f: Fmt
+    var typicalWhPerKm: Double?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(place(drive.startGeofenceID, drive.startAddress)) + Text("  →  ").foregroundStyle(TL.Palette.edgeStrong) + Text(place(drive.endGeofenceID, drive.endAddress))
-                Spacer()
-                if drive.isOpen { Text("LIVE").tlLabel().foregroundStyle(TL.Palette.onIon).padding(.horizontal, 6).padding(.vertical, 2).background(ChamferedRectangle(cut: 4).fill(TL.Palette.ion)) }
-                if drive.isInferred { Image(systemName: "questionmark.circle").foregroundStyle(TL.Palette.inkMuted).help("Reconstructed: the app wasn't running during this drive") }
+        HStack(spacing: TL.Space.s3) {
+            RouteThumbnail(drive: drive)
+            VStack(alignment: .leading, spacing: 2) {
+                title.font(TL.Typeface.bodyStrong).foregroundStyle(TL.Palette.ink).lineLimit(1)
+                meta.font(TL.Typeface.caption).foregroundStyle(TL.Palette.inkMuted).lineLimit(1)
             }
-            .font(TL.Typeface.bodyStrong)
-            .lineLimit(1)
-            HStack(spacing: 14) {
-                Label(drive.startDate.formatted(date: .omitted, time: .shortened), systemImage: "clock")
-                Label(f.distance(drive.distanceKm), systemImage: "point.topleft.down.to.point.bottomright.curvepath")
-                Label(f.duration(minutes: drive.durationMin), systemImage: "timer")
-                if let e = drive.efficiencyWhPerKm { Label(f.efficiency(whPerKm: e), systemImage: "leaf") }
+            Spacer(minLength: TL.Space.s2)
+            if drive.isOpen {
+                Text("LIVE").tlLabel().foregroundStyle(TL.Palette.onIon)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(ChamferedRectangle(cut: 4).fill(TL.Palette.ion))
+            } else {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(f.distance(drive.distanceKm)).font(TL.Typeface.display(17, .medium)).monospacedDigit().foregroundStyle(TL.Palette.ink)
+                    Text(efficiencyText).font(TL.Typeface.mono(12)).foregroundStyle(efficiencyColor)
+                }
             }
-            .font(TL.Typeface.caption)
-            .foregroundStyle(TL.Palette.inkMuted)
-            .labelStyle(.titleAndIcon)
         }
         .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var title: Text {
+        if drive.isOpen {
+            return Text(place(drive.startGeofenceID, drive.startAddress)) + Text(" → ").foregroundColor(TL.Palette.edgeStrong)
+                + Text("driving").foregroundColor(TL.Palette.inkMuted)
+        }
+        return Text(place(drive.startGeofenceID, drive.startAddress)) + Text(" → ").foregroundColor(TL.Palette.edgeStrong)
+            + Text(place(drive.endGeofenceID, drive.endAddress))
+    }
+
+    private var meta: Text {
+        let time = drive.startDate.formatted(date: .omitted, time: .shortened)
+        if drive.isOpen { return Text("\(time) · \(f.distance(drive.distanceKm)) so far") }
+        if drive.isInferred { return Text(Image(systemName: "questionmark.circle")) + Text(" Reconstructed · app was closed") }
+        var parts = [time, f.duration(minutes: drive.durationMin)]
+        if let up = drive.ascentM, up >= 100 { parts.append("↑ \(f.elevation(up))") }
+        return Text(parts.joined(separator: " · "))
+    }
+
+    private var efficiencyText: String {
+        guard let e = drive.efficiencyWhPerKm else { return "–" }
+        return (drive.isInferred ? "≈" : "") + f.efficiency(whPerKm: e)
+    }
+
+    /// Green when better than your typical consumption, amber when clearly worse.
+    private var efficiencyColor: Color {
+        guard let e = drive.efficiencyWhPerKm, !drive.isInferred, let typical = typicalWhPerKm else { return TL.Palette.inkMuted }
+        if e <= typical { return TL.Palette.charge }
+        if e > typical * 1.08 { return TL.Palette.amber }
+        return TL.Palette.ink
     }
 
     private func place(_ fence: RecordID?, _ address: String?) -> String {
@@ -101,15 +158,44 @@ struct DriveDetailView: View {
         let f = Fmt(model.settings.units)
         ScrollView {
             VStack(spacing: TL.Space.s6) {
-                Map {
-                    ForEach(Array(segments.enumerated()), id: \.offset) { _, seg in
-                        MapPolyline(coordinates: seg.coords).stroke(seg.color, style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                    }
-                    if let a = positions.first { Marker("Start", systemImage: "flag", coordinate: a.coordinate).tint(.green) }
-                    if let b = positions.last { Marker("End", systemImage: "flag.checkered", coordinate: b.coordinate).tint(.red) }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(drive.startDate.formatted(.dateTime.weekday(.abbreviated).day().month()) + " · "
+                         + drive.startDate.formatted(date: .omitted, time: .shortened)
+                         + (drive.endDate.map { " – " + $0.formatted(date: .omitted, time: .shortened) } ?? ""))
+                        .tlLabel()
+                    (Text(drive.startAddress ?? "Start") + Text(" → ").foregroundColor(TL.Palette.edgeStrong) + Text(drive.endAddress ?? (drive.isOpen ? "driving" : "End")))
+                        .font(TL.Typeface.display(28))
+                        .foregroundStyle(TL.Palette.ink)
+                        .lineLimit(2)
                 }
-                .frame(height: 320)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Map {
+                    // Glow under the route, then the route coloured by the chosen metric.
+                    MapPolyline(coordinates: positions.map(\.coordinate))
+                        .stroke(TL.Palette.ion.opacity(0.25), style: StrokeStyle(lineWidth: 10, lineCap: .round, lineJoin: .round))
+                    ForEach(Array(segments.enumerated()), id: \.offset) { _, seg in
+                        MapPolyline(coordinates: seg.coords).stroke(seg.color, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                    }
+                    if let a = positions.first {
+                        Annotation("Start", coordinate: a.coordinate) { MapPin(color: TL.Palette.charge) }
+                    }
+                    if let b = positions.last, !drive.isOpen {
+                        Annotation("End", coordinate: b.coordinate) { MapPin(color: TL.Palette.ink) }
+                    }
+                    if colorBy == .speed, let top = positions.filter({ $0.speedKmh != nil }).max(by: { $0.speedKmh! < $1.speedKmh! }) {
+                        Annotation("Top speed", coordinate: top.coordinate, anchor: .bottom) {
+                            ValueTag(text: f.speed(top.speedKmh), color: TL.Palette.lightbar)
+                        }
+                    }
+                }
+                .mapStyle(.standard(elevation: .flat, emphasis: .muted, pointsOfInterest: .excludingAll))
+                .environment(\.colorScheme, .dark)
+                .frame(height: 300)
                 .clipShape(ChamferedRectangle(cut: TL.Chamfer.lg))
+                .overlay(alignment: .bottom) {
+                    if colorBy == .speed { HeatLegend(low: "0", high: f.speed(positions.compactMap(\.speedKmh).max())).padding(12) }
+                }
 
                 TLSegmented(options: ColorBy.allCases, selection: $colorBy) { $0.rawValue }
 
@@ -164,7 +250,7 @@ struct DriveDetailView: View {
             .frame(maxWidth: .infinity)
         }
         .background(TL.Palette.ground)
-        .navigationTitle(drive.startDate.formatted(date: .abbreviated, time: .shortened))
+        .navigationTitle("Drive")
         .navigationBarTitleDisplayMode(.inline)
         .task(id: model.dataVersion) {
             if let id = drive.id { positions = (try? await model.store.positions(driveID: id)) ?? [] }
@@ -177,6 +263,15 @@ struct DriveDetailView: View {
     }
 
     /// Splits the track into short runs coloured by the chosen metric.
+    /// Route heat scale: edge-strong → ion → lightbar.
+    static func heat(_ t: Double) -> Color {
+        let stops: [(Double, (Double, Double, Double))] = [(0, (0.40, 0.44, 0.48)), (0.5, (0.30, 0.79, 1.0)), (1, (0.91, 0.97, 1.0))]
+        let x = max(0, min(1, t))
+        let (a, b) = x < 0.5 ? (stops[0], stops[1]) : (stops[1], stops[2])
+        let u = (x - a.0) / (b.0 - a.0)
+        return Color(red: a.1.0 + (b.1.0 - a.1.0) * u, green: a.1.1 + (b.1.1 - a.1.1) * u, blue: a.1.2 + (b.1.2 - a.1.2) * u)
+    }
+
     private var segments: [(coords: [CLLocationCoordinate2D], color: Color)] {
         let pts = positions
         guard pts.count > 1 else { return [] }
@@ -193,7 +288,7 @@ struct DriveDetailView: View {
         for i in 1..<pts.count {
             let v = values[i] ?? values[i - 1]
             let t = v.map { ($0 - lo) / (hi - lo) } ?? 0.5
-            out.append(([pts[i - 1].coordinate, pts[i].coordinate], Color(hue: 0.66 - 0.66 * t, saturation: 0.85, brightness: 0.9)))
+            out.append(([pts[i - 1].coordinate, pts[i].coordinate], Self.heat(t)))
         }
         return out
     }
@@ -201,4 +296,31 @@ struct DriveDetailView: View {
 
 extension Position {
     var coordinate: CLLocationCoordinate2D { .init(latitude: latitude, longitude: longitude) }
+}
+
+/// Chamfered square marker for route start and end.
+struct MapPin: View {
+    let color: Color
+    var body: some View {
+        ChamferedRectangle(cut: 3)
+            .fill(color)
+            .frame(width: 12, height: 12)
+            .shadow(color: color.opacity(0.6), radius: 6)
+    }
+}
+
+/// The route heat scale shown under the map.
+struct HeatLegend: View {
+    let low: String
+    let high: String
+    var body: some View {
+        HStack(spacing: TL.Space.s2) {
+            Text(low)
+            LinearGradient(colors: [DriveDetailView.heat(0), DriveDetailView.heat(0.5), DriveDetailView.heat(1)], startPoint: .leading, endPoint: .trailing)
+                .frame(height: 3)
+            Text(high)
+        }
+        .font(TL.Typeface.mono(10))
+        .foregroundStyle(TL.Palette.inkMuted)
+    }
 }

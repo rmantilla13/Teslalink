@@ -10,11 +10,33 @@ struct ChargesView: View {
     var body: some View {
         let f = Fmt(model.settings.units)
         List {
+            if let live = charges.first(where: \.isOpen), let vin = model.selectedVehicle?.vin {
+                Section {
+                    NavigationLink { LiveChargeView(vin: vin) } label: {
+                        HStack(spacing: TL.Space.s3) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Charging now").tlLabel()
+                                Text("+" + f.energy(live.energyAddedKwh))
+                                    .font(TL.Typeface.display(28))
+                                    .monospacedDigit()
+                                    .foregroundStyle(TL.Palette.charge)
+                                Text(f.power(model.status(for: vin).snapshot?.chargerPowerKw) + " · " + f.duration(minutes: live.durationMin))
+                                    .font(TL.Typeface.caption).foregroundStyle(TL.Palette.inkMuted)
+                            }
+                            Spacer()
+                            BatteryBar(level: model.status(for: vin).snapshot?.batteryLevel, limit: nil, charging: true, segments: 10)
+                                .frame(width: 120)
+                        }
+                    }
+                    .listRowBackground(TL.Palette.charge.opacity(0.08))
+                }
+            }
             if charges.isEmpty {
                 ContentUnavailableView("No charging sessions yet", systemImage: "bolt.car",
                                        description: Text("Plug in and TeslaLink will log the session, even from sparse background updates."))
+                    .listRowBackground(Color.clear)
             }
-            ForEach(charges) { c in
+            ForEach(charges.filter { !$0.isOpen }) { c in
                 NavigationLink(value: c) {
                     HStack(spacing: 12) {
                         Image(systemName: c.isDCFast ? "bolt.circle.fill" : "powerplug.fill")
@@ -36,7 +58,10 @@ struct ChargesView: View {
                     }
                 }
             }
-            .onDelete { idx in Task { await delete(idx.map { charges[$0] }) } }
+            .onDelete { idx in
+                let closed = charges.filter { !$0.isOpen }
+                Task { await delete(idx.map { closed[$0] }) }
+            }
         }
         .tlListStyle()
         .navigationTitle("Charging")
