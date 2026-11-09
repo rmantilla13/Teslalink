@@ -84,6 +84,8 @@ struct TLLineChart<X: Plottable & Comparable>: View {
     var color: Color = TL.Palette.ion
     var area = true
     var markMax = true
+    /// The blurred glow copy. Off for neutral context lines such as elevation.
+    var glows = true
     var liveEnd = false
     var average: Double?
     var threshold: (value: Double, label: String)?
@@ -94,12 +96,14 @@ struct TLLineChart<X: Plottable & Comparable>: View {
 
     var body: some View {
         ZStack {
-            // Glow copy: same layout, axis labels hidden, blurred.
-            chart(glow: true)
-                .blur(radius: 4)
-                .opacity(0.55)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
+            // Glow copy: same layout and scales, axis labels hidden, blurred.
+            if glows {
+                chart(glow: true)
+                    .blur(radius: 4)
+                    .opacity(0.55)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
             chart(glow: false)
         }
         .frame(height: height)
@@ -107,10 +111,44 @@ struct TLLineChart<X: Plottable & Comparable>: View {
 
     private var maxPoint: TLPoint<X>? { points.max { $0.y < $1.y } }
 
+    /// A flat series (a steady 11 kW home charge) has no peak worth marking.
+    private var isFlat: Bool {
+        guard let lo = points.map(\.y).min(), let hi = points.map(\.y).max() else { return true }
+        return hi - lo < max(abs(hi), 1) * 0.05
+    }
+
+    // The crisp line and its blurred glow copy are two charts. Each would size its automatic
+    // domain from its own marks (the glow copy has no area, peak or rules), so the glow drifted
+    // off the line. Both get these explicit domains instead.
+
+    private var resolvedYDomain: ClosedRange<Double> {
+        if let yDomain { return yDomain }
+        var values = points.map(\.y)
+        if let average { values.append(average) }
+        if let threshold { values.append(threshold.value) }
+        let lo = min(0, values.min() ?? 0)
+        let hi = max(values.max() ?? 1, lo + 1)
+        return lo...Self.niceCeiling(hi * 1.05)
+    }
+
+    private var xDomain: ClosedRange<X>? {
+        guard let lo = points.map(\.x).min(), let hi = points.map(\.x).max(), lo < hi else { return nil }
+        return lo...hi
+    }
+
+    /// The next "round" axis top at or above `v`: 1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8 × 10ⁿ.
+    static func niceCeiling(_ v: Double) -> Double {
+        guard v > 0 else { return 1 }
+        let mag = pow(10, floor(log10(v)))
+        for step in [1.0, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10] where step * mag >= v { return step * mag }
+        return 10 * mag
+    }
+
     @ChartContentBuilder
     private func marks(glow: Bool) -> some ChartContent {
-        if let band, !glow {
-            RectangleMark(xStart: .value("From", band.from), xEnd: .value("To", band.to))
+        if let band, !glow, let xDomain, band.from < xDomain.upperBound, band.to > xDomain.lowerBound {
+            RectangleMark(xStart: .value("From", max(band.from, xDomain.lowerBound)),
+                          xEnd: .value("To", min(band.to, xDomain.upperBound)))
                 .foregroundStyle(TL.Palette.ion.opacity(0.06))
                 .annotation(position: .top, alignment: .center, spacing: -14) {
                     Text(band.label.uppercased()).font(TL.Typeface.mono(10)).foregroundStyle(TL.Palette.ion)
@@ -118,7 +156,7 @@ struct TLLineChart<X: Plottable & Comparable>: View {
         }
         ForEach(points) { p in
             if area && !glow {
-                AreaMark(x: .value("x", p.x), yStart: .value("base", yDomain?.lowerBound ?? 0), yEnd: .value("y", p.y))
+                AreaMark(x: .value("x", p.x), yStart: .value("base", resolvedYDomain.lowerBound), yEnd: .value("y", p.y))
                     .foregroundStyle(LinearGradient(colors: [color.opacity(0.32), color.opacity(0)], startPoint: .top, endPoint: .bottom))
                     .interpolationMethod(.monotone)
             }
@@ -141,7 +179,7 @@ struct TLLineChart<X: Plottable & Comparable>: View {
                         Text(threshold.label).font(TL.Typeface.mono(10)).foregroundStyle(TL.Palette.ion)
                     }
             }
-            if markMax, let m = maxPoint {
+            if markMax, !isFlat, let m = maxPoint {
                 PointMark(x: .value("x", m.x), y: .value("y", m.y))
                     .symbolSize(150)
                     .foregroundStyle(TL.Palette.lightbar.opacity(0.2))
@@ -159,7 +197,11 @@ struct TLLineChart<X: Plottable & Comparable>: View {
                 PointMark(x: .value("x", last.x), y: .value("y", last.y))
                     .symbolSize(40)
                     .foregroundStyle(color)
-                    .annotation(position: .topTrailing, spacing: 4) { ValueTag(text: valueFormat(last.y), color: color) }
+                    // The live end sits at the right edge: keep its tag inside the chart.
+                    .annotation(position: .top, alignment: .trailing, spacing: 6,
+                                overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
+                        ValueTag(text: valueFormat(last.y), color: color)
+                    }
             }
         }
     }
@@ -168,8 +210,9 @@ struct TLLineChart<X: Plottable & Comparable>: View {
     private func chart(glow: Bool) -> some View {
         let c = Chart { marks(glow: glow) }
             .tlChartAxes(ghost: glow)
-        if let yDomain {
-            c.chartYScale(domain: yDomain)
+            .chartYScale(domain: resolvedYDomain)
+        if let xDomain {
+            c.chartXScale(domain: xDomain)
         } else {
             c
         }

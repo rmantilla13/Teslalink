@@ -5,6 +5,7 @@ import TeslaLinkCore
 
 struct DrivesView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.tabIsActive) private var tabIsActive
     @State private var drives: [Drive] = []
     @State private var fences: [RecordID: String] = [:]
 
@@ -14,44 +15,54 @@ struct DrivesView: View {
         let weekStats = PeriodStats(drives: week, charges: [])
         let typical = weekStats.efficiencyWhPerKm ?? PeriodStats(drives: drives.filter { !$0.isOpen }, charges: []).efficiencyWhPerKm
 
-        List {
-            if drives.isEmpty {
-                ContentUnavailableView("No drives yet", systemImage: "road.lanes",
-                                       description: Text("Drives are logged automatically. Keep location set to Always for the most detail."))
-                    .listRowBackground(Color.clear)
-            } else {
-                Section {
-                    Card(title: "This week", symbol: "calendar") {
-                        HStack(alignment: .top, spacing: TL.Space.s6) {
-                            Metric(label: "Distance", value: f.distance(weekStats.distanceKm, digits: 0))
-                            Metric(label: "Energy", value: f.energy(weekStats.energyUsedKwh))
+        // Drives artboard: a week summary, then chamfered day groups of rows split by 1 px rules.
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 14) {
+                ScreenHeader(title: "Drives")
+                if drives.isEmpty {
+                    ContentUnavailableView("No drives yet", systemImage: "road.lanes",
+                                           description: Text("Drives are logged automatically. Keep location set to Always for the most detail."))
+                } else {
+                    Card(title: "") {
+                        HStack(alignment: .top, spacing: TL.Space.s3) {
+                            Metric(label: "This week", value: f.distance(weekStats.distanceKm, digits: 0)).frame(maxWidth: .infinity, alignment: .leading)
+                            Metric(label: "Energy", value: f.energy(weekStats.energyUsedKwh)).frame(maxWidth: .infinity, alignment: .leading)
                             Metric(label: "Average", value: f.efficiency(whPerKm: weekStats.efficiencyWhPerKm), tone: TL.Palette.charge)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
                 }
-            }
-            ForEach(groupedByDay, id: \.0) { day, items in
-                Section {
-                    ForEach(items) { d in
-                        NavigationLink(value: d) { DriveRow(drive: d, fences: fences, f: f, typicalWhPerKm: typical) }
-                            .listRowBackground(d.isOpen ? TL.Palette.ion.opacity(0.07) : TL.Palette.surface1)
-                    }
-                    .onDelete { idx in Task { await delete(idx.map { items[$0] }) } }
-                } header: {
+                ForEach(groupedByDay, id: \.0) { day, items in
                     HStack(alignment: .firstTextBaseline) {
                         Text(dayTitle(day)).tlLabel().foregroundStyle(TL.Palette.ink)
                         Spacer()
                         Text(f.distance(items.compactMap(\.distanceKm).reduce(0, +))).font(TL.Typeface.mono(12)).foregroundStyle(TL.Palette.inkMuted)
                     }
+                    .padding(.top, 6)
+                    .padding(.horizontal, 2)
+                    RowGroup {
+                        ForEach(items) { d in
+                            NavigationLink(value: d) {
+                                DriveRow(drive: d, fences: fences, f: f, typicalWhPerKm: typical)
+                                    .tlRow(highlight: d.isOpen ? TL.Palette.ion : nil)
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("Delete drive", systemImage: "trash", role: .destructive) { Task { await delete([d]) } }
+                            }
+                        }
+                    }
                 }
             }
+            .padding(.horizontal, TL.Space.s4)
+            .padding(.bottom, TL.Space.s6)
+            .frame(maxWidth: 1000)
+            .frame(maxWidth: .infinity)
         }
-        .tlListStyle()
-        .navigationTitle("Drives")
+        .tlScreen()
         .navigationDestination(for: Drive.self) { DriveDetailView(drive: $0) }
-        .task(id: model.dataVersion) { await load() }
+        // Pauses while another tab is in front (PhoneRoot keeps this one alive).
+        .task(id: tabIsActive ? model.dataVersion : -1) { if tabIsActive { await load() } }
         .refreshable { await load() }
     }
 
@@ -150,6 +161,7 @@ struct DriveDetailView: View {
     @Environment(AppModel.self) private var model
     let drive: Drive
     @State private var positions: [Position] = []
+    @State private var fences: [RecordID: String] = [:]
     @State private var colorBy: ColorBy = .speed
 
     enum ColorBy: String, CaseIterable { case speed = "Speed", power = "Power", elevation = "Elevation" }
@@ -157,23 +169,49 @@ struct DriveDetailView: View {
     var body: some View {
         let f = Fmt(model.settings.units)
         ScrollView {
-            VStack(spacing: TL.Space.s6) {
+            VStack(spacing: TL.Space.s4) {
                 header
                 routeMap(f)
-                TLSegmented(options: ColorBy.allCases, selection: $colorBy) { $0.rawValue }
+                // The legend sits under the map: inside it, it collided with the Maps attribution.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: TL.Space.s4) {
+                        TLSegmented(options: ColorBy.allCases, selection: $colorBy) { $0.rawValue }
+                        Spacer(minLength: 0)
+                        legend(f).frame(maxWidth: 150)
+                    }
+                    VStack(alignment: .leading, spacing: TL.Space.s3) {
+                        TLSegmented(options: ColorBy.allCases, selection: $colorBy) { $0.rawValue }
+                        legend(f)
+                    }
+                }
                 summary(f)
                 charts(f)
             }
-            .padding(TL.Space.s4)
+            .padding(.horizontal, TL.Space.s4)
+            .padding(.bottom, TL.Space.s6)
             .frame(maxWidth: 1000)
             .frame(maxWidth: .infinity)
         }
-        .background(TL.Palette.ground)
-        .navigationTitle("Drive")
-        .navigationBarTitleDisplayMode(.inline)
+        .tlScreen()
         .task(id: model.dataVersion) {
             if let id = drive.id { positions = (try? await model.store.positions(driveID: id)) ?? [] }
+            fences = Dictionary(uniqueKeysWithValues: ((try? await model.store.geofences()) ?? []).compactMap { g in g.id.map { ($0, g.name) } })
         }
+    }
+
+    /// The heat scale for the route colouring, in the chosen metric's units.
+    private func legend(_ f: Fmt) -> some View {
+        let (low, high): (String, String) = switch colorBy {
+        case .speed: ("0", f.speed(positions.compactMap(\.speedKmh).max()))
+        case .power: (f.power(positions.compactMap(\.powerKw).min()), f.power(positions.compactMap(\.powerKw).max()))
+        case .elevation: (f.elevation(positions.compactMap(\.elevationM).min()), f.elevation(positions.compactMap(\.elevationM).max()))
+        }
+        return HeatLegend(low: low, high: high)
+    }
+
+    /// Same names as the Drives list: a saved place first, then the street address.
+    private func place(_ fence: RecordID?, _ address: String?) -> String? {
+        fence.flatMap { fences[$0] } ?? address
     }
 
     private var dateLine: String {
@@ -184,21 +222,16 @@ struct DriveDetailView: View {
     }
 
     private var routeTitle: Text {
-        let start = Text(drive.startAddress ?? "Start")
+        let start = Text(place(drive.startGeofenceID, drive.startAddress) ?? "Start")
         let arrow = Text(" → ").foregroundColor(TL.Palette.edgeStrong)
-        let end = Text(drive.endAddress ?? (drive.isOpen ? "driving" : "End"))
+        let end = drive.isOpen
+            ? Text("driving").foregroundColor(TL.Palette.inkMuted)
+            : Text(place(drive.endGeofenceID, drive.endAddress) ?? "End")
         return start + arrow + end
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(dateLine).tlLabel()
-            routeTitle
-                .font(TL.Typeface.display(28))
-                .foregroundStyle(TL.Palette.ink)
-                .lineLimit(2)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        ScreenHeader(back: "Drives", label: dateLine, title: routeTitle, titleSize: 30)
     }
 
     private var topSpeedPosition: Position? {
@@ -229,13 +262,10 @@ struct DriveDetailView: View {
         .environment(\.colorScheme, .dark)
         .frame(height: 300)
         .clipShape(ChamferedRectangle(cut: TL.Chamfer.lg))
-        .overlay(alignment: .bottom) {
-            if colorBy == .speed { HeatLegend(low: "0", high: f.speed(positions.compactMap(\.speedKmh).max())).padding(12) }
-        }
     }
 
     private func summary(_ f: Fmt) -> some View {
-        Card(title: "Summary", symbol: "list.bullet.rectangle") {
+        Card(title: "Summary") {
             Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 10) {
                 GridRow { Metric(label: "Distance", value: f.distance(drive.distanceKm)); Metric(label: "Duration", value: f.duration(minutes: drive.durationMin)) }
                 GridRow { Metric(label: "Avg speed", value: f.speed(drive.averageSpeedKmh)); Metric(label: "Top speed", value: f.speed(drive.speedMaxKmh)) }
@@ -258,29 +288,38 @@ struct DriveDetailView: View {
     private func charts(_ f: Fmt) -> some View {
         let speed = positions.compactMap { p in p.speedKmh.map { TLPoint(x: p.timestamp, y: f.km($0)) } }
         if speed.count > 2 {
-            Card(title: "Speed", symbol: "speedometer", lightbar: false, aside: AnyView(ChartUnit(text: f.speedUnit))) {
+            Card(title: "Speed", lightbar: false, aside: AnyView(ChartUnit(text: f.speedUnit))) {
                 TLLineChart(points: speed, color: TL.Palette.ion, height: 150)
             }
         }
         let power = positions.filter { $0.powerKw != nil && $0.source != .phone }
         if power.count > 2 {
-            Card(title: "Power", symbol: "bolt", lightbar: false,
+            Card(title: "Power", lightbar: false,
                  aside: AnyView(ChartLegend(items: [("Drive", TL.Palette.ion), ("Regen", TL.Palette.charge)]))) {
+                // Thin square bars (one per sample) on a range that fits the drive, split at zero.
+                let kw = power.compactMap(\.powerKw)
+                let top = TLLineChart<Date>.niceCeiling(max(kw.max() ?? 10, 10) * 1.05)
+                let bottom = -TLLineChart<Date>.niceCeiling(max(-(kw.min() ?? 0), 10) * 1.05)
                 Chart(power, id: \.timestamp) { p in
-                    BarMark(x: .value("Time", p.timestamp), y: .value("kW", p.powerKw!))
+                    BarMark(x: .value("Time", p.timestamp), y: .value("kW", p.powerKw!),
+                            width: .fixed(max(1.5, min(5, 290 / Double(power.count) * 0.6))))
                         .foregroundStyle(TLBars.signedColor(p.powerKw!))
                     RuleMark(y: .value("Zero", 0)).foregroundStyle(TL.Palette.edgeStrong).lineStyle(StrokeStyle(lineWidth: 1))
                 }
                 .tlChartAxes()
+                .chartYScale(domain: bottom...top)
                 .frame(height: 130)
             }
         }
-        let elevation = positions.compactMap { p in p.elevationM.map { TLPoint(x: p.timestamp, y: $0) } }
-        if elevation.count > 5, let lo = elevation.map(\.y).min(), let hi = elevation.map(\.y).max() {
-            Card(title: "Elevation", symbol: "mountain.2", lightbar: false,
-                 aside: AnyView(ChartUnit(text: "\(f.elevation(lo)) – \(f.elevation(hi))"))) {
-                TLLineChart(points: elevation, color: TL.Palette.steel, markMax: false,
-                            yDomain: (lo - 10)...(hi + 10), height: 90)
+        let metres = positions.compactMap(\.elevationM)
+        let elevation = positions.compactMap { p in p.elevationM.map { TLPoint(x: p.timestamp, y: f.meters($0)) } }
+        if elevation.count > 5, let loM = metres.min(), let hiM = metres.max() {
+            let pad = f.meters(10)
+            Card(title: "Elevation", lightbar: false,
+                 aside: AnyView(ChartUnit(text: "\(f.elevation(loM)) – \(f.elevation(hiM))"))) {
+                // Neutral context: steel, no glow (Chart style board).
+                TLLineChart(points: elevation, color: TL.Palette.steel, markMax: false, glows: false,
+                            yDomain: (f.meters(loM) - pad)...(f.meters(hiM) + pad), height: 90)
             }
         }
     }

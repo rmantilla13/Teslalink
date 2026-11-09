@@ -5,6 +5,8 @@ import TeslaLinkCore
 struct LiveChargeView: View {
     @Environment(AppModel.self) private var model
     let vin: String
+    /// The screen this was opened from, for the back link ("Car", "Charging").
+    var backTitle: String?
     @State private var session: ChargeSession?
     @State private var samples: [ChargeSample] = []
     @State private var placeName: String?
@@ -13,7 +15,7 @@ struct LiveChargeView: View {
         let f = Fmt(model.settings.units)
         let s = model.status(for: vin).snapshot
         ScrollView {
-            VStack(alignment: .leading, spacing: TL.Space.s6) {
+            VStack(alignment: .leading, spacing: TL.Space.s4) {
                 header(s)
 
                 VStack(alignment: .leading, spacing: TL.Space.s1) {
@@ -29,17 +31,16 @@ struct LiveChargeView: View {
                     Text(progressLine(s)).font(TL.Typeface.caption).foregroundStyle(TL.Palette.inkMuted)
                 }
 
-                HStack(alignment: .top, spacing: TL.Space.s4) {
-                    Metric(label: "Power", value: f.power(s?.chargerPowerKw), tone: TL.Palette.charge)
-                    Metric(label: "Voltage", value: s?.chargerVoltage.map { "\(Int($0)) V" } ?? "–")
-                    Metric(label: "Current", value: s?.chargerActualCurrent.map { "\(Int($0)) A" } ?? "–")
+                HStack(alignment: .top, spacing: TL.Space.s3) {
+                    Metric(label: "Power", value: f.power(s?.chargerPowerKw), tone: TL.Palette.charge).frame(maxWidth: .infinity, alignment: .leading)
+                    Metric(label: "Voltage", value: s?.chargerVoltage.map { "\(Int($0)) V" } ?? "–").frame(maxWidth: .infinity, alignment: .leading)
+                    Metric(label: "Current", value: s?.chargerActualCurrent.map { "\(Int($0)) A" } ?? "–").frame(maxWidth: .infinity, alignment: .leading)
                     Metric(label: "To \(s?.chargeLimitSoc ?? 80)%", value: f.duration(minutes: s?.minutesToFullCharge.map(Double.init)))
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                BatteryBar(level: s?.batteryLevel, limit: s?.chargeLimitSoc, charging: true)
-
                 let curve = samples.compactMap { x in x.chargerPowerKw.map { TLPoint(x: x.timestamp, y: $0) } }
-                Card(title: "Charge curve", symbol: "chart.line.uptrend.xyaxis", hero: true, aside: AnyView(ChartUnit(text: "kW"))) {
+                Card(title: "Charge curve", hero: true, aside: AnyView(ChartUnit(text: "kW"))) {
                     if curve.count >= 2 {
                         TLLineChart(points: curve, color: TL.Palette.charge, liveEnd: true, height: 170,
                                     valueFormat: { "\(Int($0.rounded())) kW" })
@@ -51,9 +52,9 @@ struct LiveChargeView: View {
                     }
                 }
 
-                Card(title: "Cost", symbol: "creditcard", lightbar: false) {
+                Card(title: "", lightbar: false) {
                     HStack(alignment: .top) {
-                        Metric(label: session?.cost == nil ? "No price set" : "Cost so far", value: f.money(session?.cost))
+                        Metric(label: session?.cost == nil ? "No price set" : "Estimated cost", value: f.money(session?.cost))
                         Spacer()
                         if session?.geofenceID == nil {
                             Text("Add this place in Settings › Places to track what charging here costs.")
@@ -64,25 +65,23 @@ struct LiveChargeView: View {
                     }
                 }
             }
-            .padding(TL.Space.s4)
+            .padding(.horizontal, TL.Space.s4)
+            .padding(.bottom, TL.Space.s6)
             .frame(maxWidth: 1000)
             .frame(maxWidth: .infinity)
         }
-        .background(TL.Palette.ground)
-        .navigationTitle("Charging")
-        .navigationBarTitleDisplayMode(.inline)
+        .tlScreen()
         .task(id: model.dataVersion) { await load() }
     }
 
+    /// Live charging artboard: "Fast charger · 250 kW" over "Charging", with a DC / AC chip.
     private func header(_ s: VehicleSnapshot?) -> some View {
         let dc = s?.fastChargerPresent == true
-        return HStack(alignment: .bottom) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(dc ? "Fast charger" + (session?.powerMaxKw.map { " · up to \(Int($0.rounded())) kW" } ?? "") : "AC charging").tlLabel()
-                Text(placeName ?? session?.address ?? (dc ? "Fast charger" : "Charging"))
-                    .font(TL.Typeface.display).foregroundStyle(TL.Palette.ink).lineLimit(1).minimumScaleFactor(0.7)
-            }
-            Spacer()
+        let place = placeName ?? session?.address
+        let label = dc
+            ? "Fast charger" + (session?.powerMaxKw.map { " · up to \(Int($0.rounded())) kW" } ?? "")
+            : [place, "AC"].compactMap { $0 }.joined(separator: " · ")
+        return ScreenHeader(back: backTitle, label: label, title: Text("Charging")) {
             HStack(spacing: 6) {
                 Image(systemName: "bolt.fill").foregroundStyle(dc ? TL.Palette.amber : TL.Palette.charge)
                 Text(dc ? "DC" : "AC").font(TL.Typeface.sans(13, .semibold))

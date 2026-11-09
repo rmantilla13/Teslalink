@@ -9,6 +9,12 @@ struct SettingsView: View {
     var body: some View {
         @Bindable var model = model
         Form {
+            // Settings has no artboard: a system form under the same header as every screen.
+            Section {
+                ScreenHeader(title: "Settings")
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+            }
             if model.isDemo {
                 Section {
                     Button("Leave demo and sign in") { model.leaveDemo() }
@@ -71,7 +77,7 @@ struct SettingsView: View {
             }
         }
         .tlListStyle()
-        .navigationTitle("Settings")
+        .toolbar(.hidden, for: .navigationBar)
     }
 
     private func export() async {

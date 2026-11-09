@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.teslalink.refresh</string>
+	</array>
 	<key>CFBundleDisplayName</key>
 	<string>TeslaLink</string>
 	<key>CFBundleExecutable</key>
@@ -14,8 +18,6 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>0.1.0</string>
-	<key>CFBundleVersion</key>
-	<string>1</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -25,6 +27,12 @@
 			</array>
 		</dict>
 	</array>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Allow "Always" so TeslaLink can notice when a drive starts and log it without you opening the app.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>TeslaLink records a detailed GPS track of your drives when your phone is in the car.</string>
 	<key>TeslaClientID</key>
 	<string>$(TESLA_CLIENT_ID)</string>
 	<key>TeslaClientSecret</key>
@@ -33,35 +41,27 @@
 	<string>$(TESLA_REDIRECT_URI)</string>
 	<key>UIAppFonts</key>
 	<array>
-		<string>Fonts/ChakraPetch-Medium.ttf</string>
-		<string>Fonts/ChakraPetch-SemiBold.ttf</string>
-		<string>Fonts/Barlow-Regular.ttf</string>
-		<string>Fonts/Barlow-Medium.ttf</string>
-		<string>Fonts/Barlow-SemiBold.ttf</string>
-		<string>Fonts/IBMPlexMono-Medium.ttf</string>
+		<string>ChakraPetch-Medium.ttf</string>
+		<string>ChakraPetch-SemiBold.ttf</string>
+		<string>Barlow-Regular.ttf</string>
+		<string>Barlow-Medium.ttf</string>
+		<string>Barlow-SemiBold.ttf</string>
+		<string>IBMPlexMono-Medium.ttf</string>
 	</array>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<true/>
+	</dict>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
 		<string>fetch</string>
 	</array>
-	<key>BGTaskSchedulerPermittedIdentifiers</key>
-	<array>
-		<string>com.teslalink.refresh</string>
-	</array>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>TeslaLink records a detailed GPS track of your drives when your phone is in the car.</string>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Allow "Always" so TeslaLink can notice when a drive starts and log it without you opening the app.</string>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>
 		<string>LaunchBackground</string>
-	</dict>
-	<key>UIApplicationSceneManifest</key>
-	<dict>
-		<key>UIApplicationSupportsMultipleScenes</key>
-		<true/>
 	</dict>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>

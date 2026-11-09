@@ -10,8 +10,15 @@ struct Fmt {
     var distanceUnit: String { units == .metric ? "km" : "mi" }
     var speedUnit: String { units == .metric ? "km/h" : "mph" }
     var efficiencyUnit: String { units == .metric ? "Wh/km" : "Wh/mi" }
+    var temperatureUnit: String { units == .metric ? "°C" : "°F" }
 
     func km(_ v: Double) -> Double { units == .metric ? v : v / Units.kmPerMile }
+    /// Metres in the display unit (m or ft), for chart values.
+    func meters(_ m: Double) -> Double { units == .metric ? m : m * 3.28084 }
+    /// Celsius in the display unit, for chart values.
+    func celsius(_ c: Double) -> Double { units == .metric ? c : c * 9 / 5 + 32 }
+    /// Wh/km in the display unit (Wh/km or Wh/mi), for chart values.
+    func whPerKm(_ v: Double) -> Double { units == .metric ? v : v * Units.kmPerMile }
     func distance(_ v: Double?, digits: Int = 1) -> String {
         guard let v else { return "–" }
         return "\(km(v).formatted(.number.precision(.fractionLength(digits)))) \(distanceUnit)"

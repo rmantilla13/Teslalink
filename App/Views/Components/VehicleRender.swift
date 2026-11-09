@@ -15,32 +15,40 @@ struct VehicleHeroView: View {
     var config: VehicleConfig? { snapshot?.config ?? vehicle?.config }
 
     var body: some View {
-        VStack(spacing: 8) {
-            ZStack {
-                switch mode {
-                case .photo:
-                    if let config, let url = VehicleImage.url(for: config, view: angle) {
-                        AsyncImage(url: url, transaction: Transaction(animation: .easeInOut)) { phase in
-                            switch phase {
-                            case let .success(img): img.resizable().scaledToFit().transition(.opacity)
-                            case .failure: live
-                            default: ProgressView()
-                            }
+        // Car artboard: a 176 pt stage with a soft floor light, Photo / Live in its top corner.
+        ZStack {
+            Ellipse()
+                .fill(RadialGradient(colors: [TL.Palette.lightbar.opacity(0.16), .clear], center: .center, startRadius: 0, endRadius: 160))
+                .frame(height: 60)
+                .padding(.horizontal, 30)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                .padding(.bottom, 6)
+                .accessibilityHidden(true)
+            switch mode {
+            case .photo:
+                if let config, let url = VehicleImage.url(for: config, view: angle) {
+                    AsyncImage(url: url, transaction: Transaction(animation: .easeInOut)) { phase in
+                        switch phase {
+                        case let .success(img): img.resizable().scaledToFit().transition(.opacity)
+                        case .failure: live
+                        default: ProgressView()
                         }
-                        .gesture(DragGesture(minimumDistance: 30).onEnded { g in rotate(g.translation.width < 0) })
-                    } else {
-                        live
                     }
-                case .live:
+                    .padding(.horizontal, TL.Space.s6)
+                    .gesture(DragGesture(minimumDistance: 30).onEnded { g in rotate(g.translation.width < 0) })
+                } else {
                     live
                 }
+            case .live:
+                live
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 230)
-            .animation(.spring, value: mode)
-
-            TLSegmented(options: Mode.allCases, selection: $mode) { $0.rawValue }
         }
+        .frame(maxWidth: .infinity)
+        .frame(height: 176)
+        .overlay(alignment: .topTrailing) {
+            TLSegmented(options: Mode.allCases, selection: $mode, compact: true) { $0.rawValue }
+        }
+        .animation(.spring, value: mode)
     }
 
     private var live: some View {

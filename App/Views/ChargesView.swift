@@ -4,69 +4,76 @@ import TeslaLinkCore
 
 struct ChargesView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.tabIsActive) private var tabIsActive
     @State private var charges: [ChargeSession] = []
     @State private var fences: [RecordID: String] = [:]
 
     var body: some View {
         let f = Fmt(model.settings.units)
-        List {
-            if let live = charges.first(where: \.isOpen), let vin = model.selectedVehicle?.vin {
-                Section {
-                    NavigationLink { LiveChargeView(vin: vin) } label: {
-                        HStack(spacing: TL.Space.s3) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Charging now").tlLabel()
-                                Text("+" + f.energy(live.energyAddedKwh))
-                                    .font(TL.Typeface.display(28))
-                                    .monospacedDigit()
-                                    .foregroundStyle(TL.Palette.charge)
-                                Text(f.power(model.status(for: vin).snapshot?.chargerPowerKw) + " · " + f.duration(minutes: live.durationMin))
-                                    .font(TL.Typeface.caption).foregroundStyle(TL.Palette.inkMuted)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 14) {
+                ScreenHeader(title: "Charging")
+                if let live = charges.first(where: \.isOpen), let vin = model.selectedVehicle?.vin {
+                    NavigationLink { LiveChargeView(vin: vin, backTitle: "Charging") } label: {
+                        Card(title: "Charging now", hero: true) {
+                            HStack(spacing: TL.Space.s3) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("+" + f.energy(live.energyAddedKwh))
+                                        .font(TL.Typeface.display(28))
+                                        .monospacedDigit()
+                                        .foregroundStyle(TL.Palette.charge)
+                                    Text(f.power(model.status(for: vin).snapshot?.chargerPowerKw) + " · " + f.duration(minutes: live.durationMin) + " so far")
+                                        .font(TL.Typeface.caption).foregroundStyle(TL.Palette.inkMuted)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TL.Palette.inkMuted)
                             }
-                            Spacer()
-                            BatteryBar(level: model.status(for: vin).snapshot?.batteryLevel, limit: nil, charging: true, segments: 10)
-                                .frame(width: 120)
                         }
                     }
-                    .listRowBackground(TL.Palette.charge.opacity(0.08))
+                    .buttonStyle(.plain)
                 }
-            }
-            if charges.isEmpty {
-                ContentUnavailableView("No charging sessions yet", systemImage: "bolt.car",
-                                       description: Text("Plug in and TeslaLink will log the session, even from sparse background updates."))
-                    .listRowBackground(Color.clear)
-            }
-            ForEach(charges.filter { !$0.isOpen }) { c in
-                NavigationLink(value: c) {
-                    HStack(spacing: 12) {
-                        Image(systemName: c.isDCFast ? "bolt.circle.fill" : "powerplug.fill")
-                            .font(.title2)
-                            .foregroundStyle(c.isDCFast ? TL.Palette.amber : TL.Palette.charge)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(c.geofenceID.flatMap { fences[$0] } ?? c.address ?? (c.isDCFast ? "Fast charger" : "Charging"))
-                                .font(TL.Typeface.bodyStrong)
-                            Text("\(c.startDate.formatted(date: .abbreviated, time: .shortened)) · \(f.duration(minutes: c.durationMin))")
-                                .font(TL.Typeface.caption).foregroundStyle(TL.Palette.inkMuted)
-                        }
+                if charges.isEmpty {
+                    ContentUnavailableView("No charging sessions yet", systemImage: "bolt.car",
+                                           description: Text("Plug in and TeslaLink will log the session, even from sparse background updates."))
+                }
+                ForEach(groupedByMonth, id: \.0) { month, items in
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(month.formatted(.dateTime.month(.wide).year())).tlLabel().foregroundStyle(TL.Palette.ink)
                         Spacer()
-                        VStack(alignment: .trailing, spacing: 3) {
-                            Text("+\(f.energy(c.energyAddedKwh))").font(TL.Typeface.display(17, .medium)).monospacedDigit().foregroundStyle(TL.Palette.charge)
-                            Text("\(c.startBatteryLevel.map(String.init) ?? "–") → \(c.endBatteryLevel.map(String.init) ?? "–")%")
-                                .font(TL.Typeface.dataSmall).foregroundStyle(TL.Palette.inkMuted)
-                            if let cost = c.cost { Text(f.money(cost)).font(TL.Typeface.caption).foregroundStyle(TL.Palette.inkMuted) }
+                        Text(f.energy(items.compactMap(\.energyAddedKwh).reduce(0, +))).font(TL.Typeface.mono(12)).foregroundStyle(TL.Palette.inkMuted)
+                    }
+                    .padding(.top, 6)
+                    .padding(.horizontal, 2)
+                    RowGroup {
+                        ForEach(items) { c in
+                            NavigationLink(value: c) {
+                                ChargeRow(charge: c, place: c.geofenceID.flatMap { fences[$0] }, f: f).tlRow()
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("Delete charge", systemImage: "trash", role: .destructive) { Task { await delete([c]) } }
+                            }
                         }
                     }
                 }
             }
-            .onDelete { idx in
-                let closed = charges.filter { !$0.isOpen }
-                Task { await delete(idx.map { closed[$0] }) }
-            }
+            .padding(.horizontal, TL.Space.s4)
+            .padding(.bottom, TL.Space.s6)
+            .frame(maxWidth: 1000)
+            .frame(maxWidth: .infinity)
         }
-        .tlListStyle()
-        .navigationTitle("Charging")
+        .tlScreen()
         .navigationDestination(for: ChargeSession.self) { ChargeDetailView(charge: $0) }
-        .task(id: model.dataVersion) { await load() }
+        // Pauses while another tab is in front (PhoneRoot keeps this one alive).
+        .task(id: tabIsActive ? model.dataVersion : -1) { if tabIsActive { await load() } }
+        .refreshable { await load() }
+    }
+
+    private var groupedByMonth: [(Date, [ChargeSession])] {
+        let cal = Calendar.current
+        return Dictionary(grouping: charges.filter { !$0.isOpen }) { cal.dateInterval(of: .month, for: $0.startDate)?.start ?? $0.startDate }
+            .sorted { $0.key > $1.key }
+            .map { ($0.key, $0.value.sorted { $0.startDate > $1.startDate }) }
     }
 
     private func load() async {
@@ -81,17 +88,56 @@ struct ChargesView: View {
     }
 }
 
+/// One finished session: a glyph tile, where and when, energy added, battery span and cost.
+struct ChargeRow: View {
+    let charge: ChargeSession
+    let place: String?
+    let f: Fmt
+
+    var body: some View {
+        let c = charge
+        HStack(spacing: TL.Space.s3) {
+            Image(systemName: c.isDCFast ? "bolt.fill" : "powerplug.fill")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(c.isDCFast ? TL.Palette.amber : TL.Palette.charge)
+                .frame(width: 52, height: 40)
+                .background(ChamferedRectangle(cut: TL.Chamfer.sm).fill(TL.Palette.ground.opacity(0.6)))
+                .accessibilityLabel(c.isDCFast ? "Fast charger" : "AC charging")
+            VStack(alignment: .leading, spacing: 2) {
+                Text(place ?? c.address ?? (c.isDCFast ? "Fast charger" : "Charging"))
+                    .font(TL.Typeface.bodyStrong).foregroundStyle(TL.Palette.ink).lineLimit(1)
+                // Month is in the group header; start time is on the detail screen.
+                Text("\(c.startDate.formatted(.dateTime.weekday(.abbreviated).day())) · \(f.duration(minutes: c.durationMin))")
+                    .font(TL.Typeface.caption).foregroundStyle(TL.Palette.inkMuted).lineLimit(1)
+            }
+            Spacer(minLength: TL.Space.s2)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("+\(f.energy(c.energyAddedKwh))").font(TL.Typeface.display(17, .medium)).monospacedDigit().foregroundStyle(TL.Palette.charge)
+                Text("\(c.startBatteryLevel.map(String.init) ?? "–") → \(c.endBatteryLevel.map(String.init) ?? "–")%"
+                     + (c.cost.map { " · " + f.money($0) } ?? ""))
+                    .font(TL.Typeface.mono(12)).foregroundStyle(TL.Palette.inkMuted).lineLimit(1)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 struct ChargeDetailView: View {
     @Environment(AppModel.self) private var model
     let charge: ChargeSession
     @State private var samples: [ChargeSample] = []
     @State private var tariff: Tariff?
+    @State private var placeName: String?
 
     var body: some View {
         let f = Fmt(model.settings.units)
         ScrollView {
-            VStack(spacing: TL.Space.s6) {
-                Card(title: "Session", symbol: "bolt.fill") {
+            VStack(spacing: TL.Space.s4) {
+                ScreenHeader(back: "Charging",
+                             label: charge.startDate.formatted(.dateTime.weekday(.abbreviated).day().month().hour().minute()),
+                             title: placeName ?? charge.address ?? (charge.isDCFast ? "Fast charger" : "Charging"),
+                             titleSize: 30)
+                Card(title: "Session") {
                     Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 10) {
                         GridRow { Metric(label: "Energy added", value: f.energy(charge.energyAddedKwh), tone: TL.Palette.charge); Metric(label: "From the wall", value: f.energy(charge.energyUsedKwh)) }
                         GridRow { Metric(label: "Efficiency", value: charge.chargingEfficiency.map { "\(Int(($0 * 100).rounded()))%" } ?? "–")
@@ -110,7 +156,7 @@ struct ChargeDetailView: View {
 
                 let curve = samples.compactMap { s in s.chargerPowerKw.map { TLPoint(x: s.timestamp, y: $0) } }
                 if curve.count > 2 {
-                    Card(title: "Charge curve", symbol: "chart.line.uptrend.xyaxis", hero: true, aside: AnyView(ChartUnit(text: "kW"))) {
+                    Card(title: "Charge curve", hero: true, aside: AnyView(ChartUnit(text: "kW"))) {
                         TLLineChart(points: curve, color: TL.Palette.charge, liveEnd: charge.isOpen,
                                     band: offPeakBand, height: 170, valueFormat: { "\(Int($0.rounded())) kW" })
                         if let peak = charge.powerMaxKw {
@@ -119,7 +165,7 @@ struct ChargeDetailView: View {
                     }
                     let bySoc = samples.filter { $0.chargerPowerKw != nil && $0.batteryLevel != nil }
                     if bySoc.count > 2 {
-                        Card(title: "Power vs battery level", symbol: "battery.100percent.bolt", lightbar: false, aside: AnyView(ChartUnit(text: "kW · %"))) {
+                        Card(title: "Power vs battery level", lightbar: false, aside: AnyView(ChartUnit(text: "kW · %"))) {
                             Chart(bySoc, id: \.timestamp) { s in
                                 PointMark(x: .value("Battery", s.batteryLevel!), y: .value("kW", s.chargerPowerKw!))
                                     .symbolSize(30)
@@ -136,16 +182,17 @@ struct ChargeDetailView: View {
                     }
                 }
             }
-            .padding(TL.Space.s4)
+            .padding(.horizontal, TL.Space.s4)
+            .padding(.bottom, TL.Space.s6)
             .frame(maxWidth: 1000)
             .frame(maxWidth: .infinity)
         }
-        .background(TL.Palette.ground)
-        .navigationTitle(charge.startDate.formatted(date: .abbreviated, time: .shortened))
-        .navigationBarTitleDisplayMode(.inline)
+        .tlScreen()
         .task(id: model.dataVersion) {
             if let id = charge.id { samples = (try? await model.store.samples(sessionID: id)) ?? [] }
-            tariff = ((try? await model.store.geofences()) ?? []).first { $0.id == charge.geofenceID }?.tariff
+            let fence = ((try? await model.store.geofences()) ?? []).first { $0.id == charge.geofenceID }
+            tariff = fence?.tariff
+            placeName = fence?.name
         }
     }
 

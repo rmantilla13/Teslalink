@@ -4,7 +4,7 @@ import TeslaLinkCore
 /// iPad (regular width) layout: a steel sidebar with the mark, sections and the user's cars.
 struct SidebarRoot: View {
     @Environment(AppModel.self) private var model
-    @State private var section: AppSection? = .car
+    @State private var section: AppSection? = DebugLaunch.section ?? .car
 
     var body: some View {
         NavigationSplitView {
@@ -53,15 +53,7 @@ struct SidebarRoot: View {
             .navigationSplitViewColumnWidth(260)
             .toolbar(.hidden, for: .navigationBar)
         } detail: {
-            NavigationStack {
-                switch section ?? .car {
-                case .car: DashboardView()
-                case .drives: DrivesView()
-                case .charging: ChargesView()
-                case .insights: StatsView()
-                case .settings: SettingsView()
-                }
-            }
+            NavigationStack { (section ?? .car).rootView }
         }
         .tint(TL.Palette.ion)
     }
@@ -81,13 +73,24 @@ enum AppSection: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Outline symbols, like the square-capped line glyphs in the design.
     var symbol: String {
         switch self {
-        case .car: "car.side.fill"
+        case .car: "car.side"
         case .drives: "road.lanes"
-        case .charging: "bolt.car.fill"
+        case .charging: "bolt"
         case .insights: "chart.xyaxis.line"
-        case .settings: "gearshape"
+        case .settings: "slider.horizontal.3"
+        }
+    }
+
+    @MainActor @ViewBuilder var rootView: some View {
+        switch self {
+        case .car: DashboardView()
+        case .drives: DrivesView()
+        case .charging: ChargesView()
+        case .insights: StatsView()
+        case .settings: SettingsView()
         }
     }
 }

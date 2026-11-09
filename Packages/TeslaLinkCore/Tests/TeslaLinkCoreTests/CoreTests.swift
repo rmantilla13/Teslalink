@@ -421,6 +421,21 @@ final class DemoDataTests: XCTestCase {
         XCTAssertEqual(again, drives.count)
     }
 
+    /// "Explore with a demo car" shows dashes until seeding finishes, so it has to be quick
+    /// against a real file (WAL) store, not just in memory.
+    func testSeedingAFileStoreIsQuick() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("demo-\(UUID().uuidString).sqlite")
+        defer {
+            for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: url.path + suffix) }
+        }
+        let store = try LogStore(path: url.path)
+        let started = Date()
+        try await DemoData.seed(store, days: 30, now: Date(timeIntervalSince1970: 1_790_000_000))
+        let elapsed = Date().timeIntervalSince(started)
+        print("Demo seeding took \(elapsed) s")
+        XCTAssertLessThan(elapsed, 3, "demo seeding took \(elapsed) s")
+    }
+
     func testDemoCarChargesThroughTheLogger() async throws {
         let store = try LogStore.inMemory()
         let t0 = Date(timeIntervalSince1970: 1_790_000_000)
@@ -431,9 +446,11 @@ final class DemoDataTests: XCTestCase {
         await logger.poll(now: t0 + 5, force: true)
         let s = await logger.state
         XCTAssertEqual(s, .charging)
-        for i in 2...25 { await logger.poll(now: t0 + Double(i * 5), force: true) }
+        for i in 2...40 { await logger.poll(now: t0 + Double(i * 5), force: true) }
         let finished = try await store.charges(vin: DemoData.vin).first
         XCTAssertNotNil(finished?.endDate, "the demo charge completes")
         XCTAssertGreaterThan(finished?.energyAddedKwh ?? 0, 10)
+        XCTAssertEqual(finished?.endBatteryLevel, 80, "it stops at the 80% limit")
+        XCTAssertLessThan(finished?.startBatteryLevel ?? 100, 60, "and starts low enough to watch it charge")
     }
 }

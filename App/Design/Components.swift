@@ -2,15 +2,17 @@ import SwiftUI
 import TeslaLinkCore
 
 /// Panel: chamfered container with a light line on its top edge. One `hero` per screen.
+/// The header is an uppercase label (none when `title` is empty), with an optional glyph and
+/// `aside` (legend, unit, link). The design's panels carry no glyph by default.
 struct Card<Content: View>: View {
     let title: String
-    let symbol: String
+    var symbol: String?
     var hero = false
     var lightbar = true
     var aside: AnyView?
     @ViewBuilder let content: Content
 
-    init(title: String, symbol: String, hero: Bool = false, lightbar: Bool = true, aside: AnyView? = nil, @ViewBuilder content: () -> Content) {
+    init(title: String, symbol: String? = nil, hero: Bool = false, lightbar: Bool = true, aside: AnyView? = nil, @ViewBuilder content: () -> Content) {
         self.title = title
         self.symbol = symbol
         self.hero = hero
@@ -22,11 +24,15 @@ struct Card<Content: View>: View {
     var body: some View {
         let cut = hero ? TL.Chamfer.lg : TL.Chamfer.md
         VStack(alignment: .leading, spacing: TL.Space.s3) {
-            HStack(spacing: TL.Space.s2) {
-                Image(systemName: symbol).font(.system(size: 12, weight: .semibold)).foregroundStyle(TL.Palette.inkMuted)
-                Text(title).tlLabel()
-                Spacer(minLength: 0)
-                aside
+            if !title.isEmpty || aside != nil {
+                HStack(spacing: TL.Space.s2) {
+                    if let symbol {
+                        Image(systemName: symbol).font(.system(size: 12, weight: .semibold)).foregroundStyle(TL.Palette.inkMuted)
+                    }
+                    Text(title).tlLabel()
+                    Spacer(minLength: 0)
+                    aside
+                }
             }
             content
         }
@@ -63,8 +69,10 @@ struct Metric: View {
         }
     }
 
-    /// Splits "412 km" so the unit renders smaller and muted.
-    private var valueText: Text {
+    private var valueText: Text { Self.withUnit(value) }
+
+    /// Splits "412 km" so the unit renders smaller and muted (Readout component).
+    static func withUnit(_ value: String) -> Text {
         guard let space = value.lastIndex(of: " "), value[value.index(after: space)...].allSatisfy({ !$0.isNumber }) else {
             return Text(value)
         }
@@ -77,17 +85,17 @@ struct Metric: View {
 struct StatTile: View {
     let title: String
     let value: String
-    let symbol: String
+    var symbol: String?
     var tone: Color = TL.Palette.ink
 
     var body: some View {
         VStack(alignment: .leading, spacing: TL.Space.s2) {
             HStack(spacing: TL.Space.s1) {
-                Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
+                if let symbol { Image(systemName: symbol).font(.system(size: 11, weight: .semibold)) }
                 Text(title)
             }
             .tlLabel()
-            Text(value)
+            Metric.withUnit(value)
                 .font(TL.Typeface.readout)
                 .monospacedDigit()
                 .foregroundStyle(tone)
@@ -128,17 +136,22 @@ struct BatteryBar: View {
     let limit: Int?
     let charging: Bool
     var segments = 20
+    /// Right of the big number, e.g. "80% in 1 h 05 min" while charging.
+    var note: Text?
     @State private var pulse = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let lvl = max(0, min(100, level ?? 0))
         let on = Int((Double(lvl) / 100 * Double(segments)).rounded())
-        VStack(alignment: .leading, spacing: TL.Space.s2) {
+        VStack(alignment: .leading, spacing: TL.Space.s3) {
             HStack(alignment: .firstTextBaseline, spacing: 2) {
                 Text(level.map(String.init) ?? "–").font(TL.Typeface.readoutXL).monospacedDigit().foregroundStyle(TL.Palette.ink)
                 Text("%").font(TL.Typeface.display(24)).foregroundStyle(TL.Palette.inkMuted)
-                if charging { Image(systemName: "bolt.fill").foregroundStyle(TL.Palette.charge).padding(.leading, 6) }
+                if let note {
+                    Spacer(minLength: TL.Space.s2)
+                    note.font(TL.Typeface.caption).foregroundStyle(TL.Palette.inkMuted).lineLimit(1)
+                }
             }
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -255,7 +268,19 @@ struct TeslaLinkMark: View {
 struct TLSegmented<Option: Hashable>: View {
     let options: [Option]
     @Binding var selection: Option
+    /// Smaller type and padding, for overlays such as Photo / Live on the car.
+    var compact = false
+    /// Equal-width options across the available width (the Insights period picker).
+    var fill = false
     let title: (Option) -> String
+
+    init(options: [Option], selection: Binding<Option>, compact: Bool = false, fill: Bool = false, title: @escaping (Option) -> String) {
+        self.options = options
+        self._selection = selection
+        self.compact = compact
+        self.fill = fill
+        self.title = title
+    }
 
     var body: some View {
         HStack(spacing: 1) {
@@ -265,11 +290,11 @@ struct TLSegmented<Option: Hashable>: View {
                     withAnimation(.snappy(duration: 0.25)) { selection = o }
                 } label: {
                     Text(title(o))
-                        .font(TL.Typeface.sans(13, .semibold))
+                        .font(TL.Typeface.sans(compact ? 12 : 13, .semibold))
                         .tracking(0.5)
                         .foregroundStyle(selected ? TL.Palette.ink : TL.Palette.inkMuted)
-                        .padding(.vertical, 7)
-                        .padding(.horizontal, 14)
+                        .padding(.vertical, compact ? 5 : 8)
+                        .padding(.horizontal, compact ? 10 : 14)
                         .frame(maxWidth: .infinity)
                         .background(selected ? TL.Palette.surface2 : TL.Palette.surface1)
                         .overlay(alignment: .bottom) {
@@ -285,6 +310,6 @@ struct TLSegmented<Option: Hashable>: View {
         .padding(1)
         .background(TL.Palette.edgeStrong)
         .clipShape(ChamferedRectangle(cut: TL.Chamfer.sm))
-        .fixedSize(horizontal: true, vertical: false)
+        .fixedSize(horizontal: !fill, vertical: false)
     }
 }

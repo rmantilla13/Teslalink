@@ -144,12 +144,15 @@ public actor DemoCar: VehicleDataSource {
     public func status(vin: String) async throws -> OnlineState { .online }
 
     public func vehicleData(vin: String, now: Date) async throws -> VehicleSnapshot {
-        // Accelerated: one real second is one simulated minute, so the demo charge finishes
-        // (11 kW for 90 minutes) about a minute and a half after launch, then the car rests.
-        let minutes = now.timeIntervalSince(startedAt)
-        let charging = minutes < 90
-        let added = min(minutes, 90) / 60 * 11 * 0.9
-        let soc = min(80, state.soc + added / 0.75)
+        // Accelerated: one real second is one simulated minute. The car is plugged in at home
+        // when the demo starts and charges at 11 kW from at most 55% up to its 80% limit
+        // (about two minutes), then rests at the limit with the charge complete.
+        let minutes = max(0, now.timeIntervalSince(startedAt))
+        let startSoc = min(state.soc, 55)
+        let socPerMinute = 11 * 0.9 / 75 * 100 / 60   // 11 kW, 90% into the pack, ~75 kWh usable
+        let soc = min(80, startSoc + minutes * socPerMinute)
+        let charging = soc < 80
+        let added = (soc - startSoc) * 0.75
         var s = VehicleSnapshot(vin: vin, timestamp: now)
         s.latitude = DemoData.home.lat; s.longitude = DemoData.home.lon; s.heading = 90
         s.odometerKm = state.odometerKm
@@ -163,7 +166,7 @@ public actor DemoCar: VehicleDataSource {
         s.chargerActualCurrent = charging ? 48 : 0
         s.chargerPhases = charging ? 1 : nil
         s.fastChargerPresent = false
-        s.minutesToFullCharge = charging ? Int((80 - soc) * 0.75 / 11 * 60 / 0.9) : 0
+        s.minutesToFullCharge = charging ? Int(((80 - soc) / socPerMinute).rounded(.up)) : 0
         s.chargePortDoorOpen = true
         s.outsideTempC = 14; s.insideTempC = 21; s.isClimateOn = false
         s.locked = true; s.sentryMode = true; s.shiftState = nil; s.speedKmh = 0; s.powerKw = 0

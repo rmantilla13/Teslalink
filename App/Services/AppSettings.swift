@@ -33,8 +33,13 @@ struct AppSettings: Codable, Equatable {
         return s
     }
 
+    /// The demo flag as saved before this launch. A `-TLDemo` launch shows the demo for that run only.
+    static let storedDemoMode: Bool? = load().demoMode
+
     func save() {
-        if let data = try? JSONEncoder().encode(self) { UserDefaults.standard.set(data, forKey: Self.key) }
+        var stored = self
+        if DebugLaunch.demo { stored.demoMode = Self.storedDemoMode }
+        if let data = try? JSONEncoder().encode(stored) { UserDefaults.standard.set(data, forKey: Self.key) }
     }
 
     var fleetConfig: FleetAppConfig? {

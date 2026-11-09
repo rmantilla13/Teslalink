@@ -14,7 +14,8 @@ struct TeslaLinkApp: App {
                 .environment(model)
         }
         .onChange(of: scenePhase) { _, phase in
-            model.scenePhaseChanged(active: phase == .active)
+            // Inactive still means on screen (a system alert, Control Center): keep the data live.
+            model.scenePhaseChanged(active: phase != .background)
         }
         .backgroundTask(.appRefresh(AppModel.refreshTaskID)) {
             await model.handleBackgroundRefresh()
@@ -25,31 +26,47 @@ struct TeslaLinkApp: App {
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @State private var tab = "car"
+    @State private var tab = DebugLaunch.section ?? .car
 
     var body: some View {
         Group {
             if model.isSignedIn && sizeClass == .regular {
                 SidebarRoot()
             } else if model.isSignedIn {
-                // Bottom tabs on iPhone; on iPad this becomes a sidebar.
-                TabView(selection: $tab) {
-                    Tab("Car", systemImage: "car.side.fill", value: "car") { NavigationStack { DashboardView() } }
-                    Tab("Drives", systemImage: "road.lanes", value: "drives") { NavigationStack { DrivesView() } }
-                    Tab("Charging", systemImage: "bolt.car.fill", value: "charges") { NavigationStack { ChargesView() } }
-                    Tab("Insights", systemImage: "chart.xyaxis.line", value: "stats") { NavigationStack { StatsView() } }
-                    Tab("Settings", systemImage: "gearshape", value: "settings") { NavigationStack { SettingsView() } }
-                }
-                .tabViewStyle(.sidebarAdaptable)
-                .tint(TL.Palette.ion)
+                PhoneRoot(tab: $tab)
             } else {
                 NavigationStack { OnboardingView() }
             }
         }
+        .tint(TL.Palette.ion)
         .alert("Something went wrong", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(model.errorMessage ?? "")
         }
+    }
+}
+
+/// Compact width (iPhone, the Duo's outer screen): one navigation stack per section under the
+/// flat steel tab bar. A section's stack is created on first visit and kept, so each tab keeps
+/// its place (scroll position, pushed drive) like a system tab bar would.
+struct PhoneRoot: View {
+    @Binding var tab: AppSection
+    @State private var visited: Set<AppSection> = []
+
+    var body: some View {
+        ZStack {
+            ForEach(AppSection.allCases) { section in
+                if visited.contains(section) || section == tab {
+                    NavigationStack { section.rootView }
+                        .opacity(section == tab ? 1 : 0)
+                        .allowsHitTesting(section == tab)
+                        .accessibilityHidden(section != tab)
+                        .environment(\.tabIsActive, section == tab)
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) { TLTabBar(selection: $tab) }
+        .onChange(of: tab, initial: true) { _, t in visited.insert(t) }
     }
 }

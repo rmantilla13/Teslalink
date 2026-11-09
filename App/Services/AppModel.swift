@@ -32,13 +32,18 @@ final class AppModel {
     private var loggers: [String: VehicleLogger] = [:]
     private let tokens = KeychainTokenStore()
     private var loopTask: Task<Void, Never>?
+    private var wakeRequested = false
     private(set) var isForeground = false
     let phone = PhoneDriveTracker()
     private var addresses: AddressResolver
     private var lastAddressRun = Date.distantPast
 
     init() {
-        let loaded = AppSettings.load()
+        var loaded = AppSettings.load()
+        if DebugLaunch.demo {
+            _ = AppSettings.storedDemoMode   // capture the saved flag before anything is saved
+            loaded.demoMode = true
+        }
         let db = Self.openStore(demo: loaded.demoMode == true)
         settings = loaded
         store = db
@@ -89,7 +94,7 @@ final class AppModel {
         loggers[DemoData.vin] = await VehicleLogger(vin: DemoData.vin, source: car, store: store, settings: fast)
         settings.selectedVIN = DemoData.vin
         await pollAll(force: true)
-        ensureLoop()
+        wakeLoop()
     }
 
     var selectedVehicle: Vehicle? {
@@ -139,15 +144,16 @@ final class AppModel {
             for l in loggers.values { Task { await l.updateSettings(settings.logger) } }
         }
         if old.usePhoneGPS != settings.usePhoneGPS {
-            settings.usePhoneGPS ? phone.start() : phone.stop()
+            if settings.usePhoneGPS, isSignedIn, !isDemo { phone.start() } else { phone.stop() }
         }
     }
 
     private func bootstrap() async {
         vehicles = (try? await store.vehicles()) ?? []
         if isDemo { await startDemo(); return }
-        if settings.usePhoneGPS { phone.start() }
         guard isSignedIn else { return }
+        // Ask for location once there's a car to log, never on the welcome screen or in demo mode.
+        if settings.usePhoneGPS { phone.start() }
         await refreshVehicleList()
         ensureLoop()
     }
@@ -166,6 +172,7 @@ final class AppModel {
             }
             if settings.selectedVIN == nil { settings.selectedVIN = vehicles.first?.vin }
             await pollAll(force: true)
+            wakeLoop()
         } catch {
             errorMessage = "Couldn't load vehicles: \(error)"
         }
@@ -194,6 +201,7 @@ final class AppModel {
         if isDemo { leaveDemo(); return }
         await auth?.signOut()
         isSignedIn = false
+        phone.stop()
         loopTask?.cancel()
         loggers = [:]
         live = [:]
@@ -221,12 +229,25 @@ final class AppModel {
         loopTask = Task { [weak self] in
             while let self, !Task.isCancelled, self.isForeground || self.phone.isTracking {
                 await self.pollAll(force: false)
+                // Until every car has reported once, check back every couple of seconds. Each
+                // logger still decides whether a request is due, so this costs no extra calls.
+                let waiting = self.loggers.isEmpty || self.loggers.keys.contains { self.live[$0]?.snapshot == nil }
                 let next = self.live.values.compactMap(\.nextPoll).min() ?? Date().addingTimeInterval(30)
-                let wait = min(max(next.timeIntervalSinceNow, 1), 30)
-                try? await Task.sleep(for: .seconds(wait))
+                let wait = waiting ? 2 : min(max(next.timeIntervalSinceNow, 1), 30)
+                let until = Date().addingTimeInterval(wait)
+                while Date() < until, !self.wakeRequested, !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(1))
+                }
+                self.wakeRequested = false
             }
             self?.loopTask = nil
         }
+    }
+
+    /// Runs the poll loop now instead of letting it finish its sleep (new cars, a forced read).
+    private func wakeLoop() {
+        wakeRequested = true
+        ensureLoop()
     }
 
     func pollAll(force: Bool) async {

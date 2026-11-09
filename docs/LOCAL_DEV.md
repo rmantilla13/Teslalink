@@ -21,7 +21,7 @@ git log --oneline -1                            # e78e8cf or newer
 cd Packages/TeslaLinkCore && swift test && cd ../..
 ```
 
-Expect 27 tests to pass.
+Expect 28 tests to pass.
 
 ## 4. Open the app in Xcode
 
@@ -34,9 +34,24 @@ open TeslaLink.xcodeproj
 
 Pick the **TeslaLink** scheme and an iPhone simulator, then Run. On the first screen tap
 **Explore with a demo car**. You get a month of sample drives and charges and a live
-charge that finishes in about 90 seconds (accelerated clock). No Tesla account needed.
+charge from 55% to 80% that takes about two minutes (accelerated clock). No Tesla account
+needed.
 
 Re-run `xcodegen generate` whenever you add or remove files (sources come from `App/`).
+
+The main target is the **iPhone Duo** (owner, 2026-11-08): check layouts closed (outer
+screen) and open (inner screen) on an iPhone Duo simulator, which only the iOS 27.1 runtime
+offers. Switch posture with the Closed / Partially Open / Open buttons under the device in
+Device Hub. iPad stays supported. An iPhone 16e (390×844) matches the design artboards.
+
+Debug builds take launch arguments for walkthroughs and screenshots, so you can skip taps:
+
+```bash
+xcrun simctl launch booted com.example.teslalink -TLDemo YES -TLTab drives
+```
+
+`-TLDemo YES` runs demo mode for that launch only (not saved). `-TLTab` takes `car`,
+`drives`, `charges`, `stats` or `settings`.
 
 ## 5. Running on your iPhone
 
@@ -71,9 +86,32 @@ screen layouts https://claude.ai/artifact/VTPntuBcebWCULjEhBzTdm
 
 ## 8. What has and hasn't been checked
 
-The app **compiles** (CI) and the core is **tested**, but the app has **never been run**.
-The first local session should launch it and fix what looks wrong. The full list is in
-`.ai/handoffs/claude-admiring-pascal-wx9wxl-2026-11-09.md`.
+First local run, 2026-11-08. Every demo screen was walked on an iPhone 16e simulator and
+compared against the design canvas. The Duo (closed and open) and an iPad Pro 11" were
+checked too.
+
+- Fixed: custom fonts never registered (`UIAppFonts` listed `Fonts/…`, but xcodegen copies
+  the files to the bundle root).
+- Fixed: location was requested on the welcome screen.
+- Fixed: polling stopped while a system alert was showing, and slept 30 s before the first
+  car reading. A first demo launch showed dashes for about 90 s.
+- Fixed: the chart glow copy drifted off the line (each copy had its own automatic domain).
+- Fixed: the Parked drain bars were invisible.
+- Fixed: elevation was charted in metres under a feet header.
+- Fixed: Drive detail used street names where the list used place names.
+- Fixed: missing values showed "Off"/"Yes" instead of an en dash.
+- Fixed: the demo charge sat at its 80% limit while still "charging".
+- Chrome now follows the design rather than the system: a screen header instead of
+  navigation bars, a flat steel tab bar (owner's choice over Liquid Glass), chamfered row
+  groups instead of rounded `List` sections, no glyphs in panel headers. See
+  `App/Design/Chrome.swift`.
+- Not done yet: a hinge-aware layout for the Duo's open inner screen. Today it uses the
+  iPad sidebar layout, so panels cross the fold.
+- Not done yet: the iPad artboard's two-column dashboard (Tonight's charge, Recent drives).
+- Still unverified: real Tesla sign-in and real-car data (needs the Fleet API setup),
+  background location relaunch, BGAppRefresh, and Keychain on a device.
+
+The cloud session's original list is in `.ai/handoffs/claude-admiring-pascal-wx9wxl-2026-11-09.md`.
 
 ## 9. Resume prompt for Claude Code on your Mac
 
