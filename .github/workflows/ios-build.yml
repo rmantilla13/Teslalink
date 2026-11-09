@@ -1,0 +1,33 @@
+name: iOS build
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          ls /Applications | grep -i xcode || true
+          LATEST=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          sudo xcode-select -s "$LATEST"
+          xcodebuild -version
+          brew install xcodegen
+      - name: Core tests (macOS)
+        working-directory: Packages/TeslaLinkCore
+        run: swift test
+      - name: Generate project
+        run: xcodegen generate
+      - name: Build app for iOS Simulator
+        run: |
+          set -o pipefail
+          xcodebuild -project TeslaLink.xcodeproj -scheme TeslaLink \
+            -destination 'generic/platform=iOS Simulator' -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build.log | grep -E "error:|warning: .*(concurren|Sendable|actor)|BUILD" || true
+          grep -q "BUILD SUCCEEDED" build.log
+      - name: Errors
+        if: failure()
+        run: grep -E "error:" build.log | sort -u | head -100 || true
