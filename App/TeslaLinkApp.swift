@@ -42,6 +42,17 @@ struct RootView: View {
         }
     }
 
+    /// Where the open Duo's menu goes: the side column the system keeps for the clock and
+    /// Wi-Fi (on the right, or the left with the Duo turned round) is free below them. nil keeps
+    /// the bottom tab bar: no panes, or no column wide enough.
+    private var railEdge: HorizontalEdge? {
+        guard duoPanes else { return nil }
+        let i = geometry.insets
+        if i.trailing >= 60, i.trailing >= i.leading { return .trailing }
+        if i.leading >= 60 { return .leading }
+        return nil
+    }
+
     /// The iPad layout. Never on a device with a hinge: while the Duo unfolds, its width turns
     /// regular a moment before the hinge reports open, and a sidebar there would rebuild the
     /// phone stacks (losing the tab's place). The Duo opened in portrait stays on the phone layout.
@@ -58,23 +69,42 @@ struct RootView: View {
         ZStack {
             if !model.isSignedIn {
                 NavigationStack { OnboardingView() }
+                    .environment(\.duoSplit, duoPanes ? geometry.hingeX : nil)
             } else if sidebar {
                 SidebarRoot()
             } else {
                 // PhoneRoot keeps its place when the Duo folds or unfolds, so the selected tab
                 // and any pushed screen survive the change.
                 HStack(spacing: 0) {
-                    PhoneRoot(tab: $tab)
+                    PhoneRoot(tab: $tab, showsTabBar: railEdge == nil)
                         .frame(width: duoPanes ? geometry.hingeX : nil)
                     if duoPanes {
                         Rectangle().fill(TL.Palette.edge).frame(width: 1).ignoresSafeArea()
                         CompanionPane(tab: $tab).frame(maxWidth: .infinity)
                     }
                 }
+                .overlay {
+                    if let edge = railEdge {
+                        let column = edge == .trailing ? geometry.insets.trailing : geometry.insets.leading
+                        DuoRail(selection: $tab, edge: edge)
+                            .frame(width: column)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: edge == .trailing ? .trailing : .leading)
+                            .ignoresSafeArea()
+                    }
+                }
                 .environment(\.paneSelection, duoPanes ? pane : nil)
             }
         }
         .onGeometryChange(for: PaneGeometry.self) { PaneGeometry(size: $0.size, insets: $0.safeAreaInsets) } action: { geometry = $0 }
+        // A developer app's setup link (from the partner script, a QR code): reviewed, never
+        // applied silently.
+        .onOpenURL { url in
+            if let link = FleetSetupLink(url: url) { model.pendingSetupLink = SetupLinkRequest(link: link) }
+        }
+        .fullScreenCover(item: Binding(get: { model.pendingSetupLink }, set: { model.pendingSetupLink = $0 })) { request in
+            SetupLinkReview(link: request.link)
+                .environment(\.duoSplit, duoPanes ? geometry.hingeX : nil)
+        }
         .background(HingeObserver(state: $hinge).frame(width: 0, height: 0).accessibilityHidden(true))
         .overlay(alignment: .top) {
             if DebugLaunch.geometry { GeometryReadout(geometry: geometry, hinge: hinge) }
@@ -93,6 +123,9 @@ struct RootView: View {
 /// its place (scroll position, pushed drive) like a system tab bar would.
 struct PhoneRoot: View {
     @Binding var tab: AppSection
+    /// False on the open Duo, where the menu sits in the side column instead. The inset stays
+    /// in place either way, so folding never rebuilds the stacks (and their pushed screens).
+    var showsTabBar = true
     @State private var visited: Set<AppSection> = []
 
     var body: some View {
@@ -107,7 +140,9 @@ struct PhoneRoot: View {
                 }
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { TLTabBar(selection: $tab) }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if showsTabBar { TLTabBar(selection: $tab) }
+        }
         .onChange(of: tab, initial: true) { _, t in visited.insert(t) }
     }
 }

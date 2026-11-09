@@ -454,3 +454,109 @@ final class DemoDataTests: XCTestCase {
         XCTAssertLessThan(finished?.startBatteryLevel ?? 100, 60, "and starts low enough to watch it charge")
     }
 }
+
+final class AccountLinkingTests: XCTestCase {
+    /// An unsigned JWT with this payload (the claims parser never checks signatures).
+    private func jwt(_ payload: [String: Any]) -> String {
+        func b64(_ data: Data) -> String {
+            data.base64EncodedString().replacingOccurrences(of: "+", with: "-")
+                .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        }
+        let header = b64(Data(#"{"alg":"none"}"#.utf8))
+        let body = b64(try! JSONSerialization.data(withJSONObject: payload))
+        return "\(header).\(body).sig"
+    }
+
+    func testClaimsReadSubjectRegionAndEmail() {
+        let claims = TokenClaims(jwt: jwt(["sub": "user-1", "ou_code": "EU", "email": "a@b.c", "aud": ["x"]]))
+        XCTAssertEqual(claims?.subject, "user-1")
+        XCTAssertEqual(claims?.region, .europeMiddleEastAfrica)
+        XCTAssertEqual(claims?.email, "a@b.c")
+    }
+
+    func testClaimsAreOptionalAndTolerant() {
+        XCTAssertNil(TokenClaims(jwt: "opaque-refresh-token"))
+        XCTAssertNil(TokenClaims(jwt: "a.not-base64-json.c"))
+        let bare = TokenClaims(jwt: jwt(["iat": 1]))
+        XCTAssertNotNil(bare)
+        XCTAssertNil(bare?.subject)
+        XCTAssertNil(bare?.region)
+        XCTAssertNil(TokenClaims(jwt: jwt(["ou_code": "MARS"]))?.region)
+    }
+
+    func testCombinedClaimsFillGapsFromIDToken() {
+        let claims = TokenClaims.combined(accessToken: jwt(["sub": "u", "ou_code": "NA"]), idToken: jwt(["sub": "other", "email": "e@x.y"]))
+        XCTAssertEqual(claims?.subject, "u")
+        XCTAssertEqual(claims?.email, "e@x.y")
+        XCTAssertEqual(claims?.region, .northAmericaAsiaPacific)
+        XCTAssertNil(TokenClaims.combined(accessToken: "opaque", idToken: nil))
+    }
+
+    func testRegionSuggestedFromCountry() {
+        XCTAssertEqual(FleetRegion.suggested(country: "DE", continent: "150", subregion: "155"), .europeMiddleEastAfrica)
+        XCTAssertEqual(FleetRegion.suggested(country: "ZA", continent: "002", subregion: "018"), .europeMiddleEastAfrica)
+        XCTAssertEqual(FleetRegion.suggested(country: "AE", continent: "142", subregion: "145"), .europeMiddleEastAfrica)
+        XCTAssertEqual(FleetRegion.suggested(country: "CN", continent: "142", subregion: "030"), .china)
+        XCTAssertEqual(FleetRegion.suggested(country: "US", continent: "019", subregion: "021"), .northAmericaAsiaPacific)
+        XCTAssertEqual(FleetRegion.suggested(country: "JP", continent: "142", subregion: "030"), .northAmericaAsiaPacific)
+        XCTAssertEqual(FleetRegion.suggested(country: "AU", continent: "009", subregion: "053"), .northAmericaAsiaPacific)
+        XCTAssertEqual(FleetRegion.suggested(country: nil, continent: nil, subregion: nil), .northAmericaAsiaPacific)
+        XCTAssertEqual(FleetRegion(teslaCode: " eu "), .europeMiddleEastAfrica)
+    }
+
+    func testSetupLinkRoundTripsAwkwardSecrets() throws {
+        let link = FleetSetupLink(clientID: "1b4e28ba-2fa1-11d2-883f-0016d3cca427", clientSecret: "ta-secret.a+b/c=d&e?f#g", region: .europeMiddleEastAfrica)
+        XCTAssertEqual(FleetSetupLink(url: link.url), link)
+        XCTAssertTrue(link.returnsToApp)
+        let parsed = try XCTUnwrap(FleetSetupLink(url: URL(string: "TeslaLink://setup?client_id=%20abc%20")!))
+        XCTAssertEqual(parsed.clientID, "abc")
+        XCTAssertNil(parsed.clientSecret)
+        XCTAssertEqual(parsed.redirectURI, FleetSetupLink.appRedirectURI)
+    }
+
+    func testSetupLinkRejectsMalformedInput() {
+        for bad in ["https://setup?client_id=a", "teslalink://auth/callback?client_id=a", "teslalink://setup?client_secret=s",
+                    "teslalink://setup?client_id=a&redirect_uri=javascript:alert(1)",
+                    "teslalink://setup?client_id=a&redirect_uri=http://evil.example/cb",
+                    "teslalink://setup?client_id=a%0Ab",
+                    "teslalink://setup?client_id=" + String(repeating: "x", count: 600)] {
+            XCTAssertNil(FleetSetupLink(url: URL(string: bad)!), bad)
+        }
+    }
+
+    func testSetupLinkFlagsAForeignRedirect() throws {
+        let link = try XCTUnwrap(FleetSetupLink(url: URL(string: "teslalink://setup?client_id=a&redirect_uri=https%3A%2F%2Fexample.com%2Fcb")!))
+        XCTAssertEqual(link.redirectURI, "https://example.com/cb")
+        XCTAssertFalse(link.returnsToApp)
+    }
+
+    func testSharedCarIsPolledOnceByTheFirstAccount() {
+        let owners = AccountRouting.owners([(id: "a", vins: ["V1", "V2"]), (id: "b", vins: ["V2", "V3"])])
+        XCTAssertEqual(owners, ["V1": "a", "V2": "a", "V3": "b"])
+        let accounts = [(id: "a", vins: ["V1", "V2"]), (id: "b", vins: ["V3"])]
+        XCTAssertEqual(AccountRouting.match(vins: ["V2", "V1"], in: accounts), "a")
+        XCTAssertNil(AccountRouting.match(vins: ["V1"], in: accounts))
+        XCTAssertNil(AccountRouting.match(vins: [], in: accounts))
+    }
+
+    func testSignInReturnsTheTokenAndItsClaims() async throws {
+        struct Canned: HTTPTransport {
+            let body: Data
+            func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+                (body, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+            }
+        }
+        let access = jwt(["sub": "user-9", "ou_code": "CN"])
+        let body = try JSONSerialization.data(withJSONObject: ["access_token": access, "refresh_token": "r1", "id_token": jwt(["email": "x@y.z"]), "expires_in": 3600])
+        let store = InMemoryTokenStore()
+        let auth = FleetAuth(config: FleetAppConfig(clientID: "id", clientSecret: "s", redirectURI: FleetSetupLink.appRedirectURI, region: .china),
+                             store: store, transport: Canned(body: body))
+        let pkce = PKCE.generate()
+        let result = try await auth.completeSignIn(callbackURL: URL(string: "teslalink://auth/callback?code=c&state=\(pkce.state)")!, pkce: pkce)
+        XCTAssertEqual(result.token.refreshToken, "r1")
+        XCTAssertEqual(store.load(), result.token)
+        XCTAssertEqual(result.claims?.subject, "user-9")
+        XCTAssertEqual(result.claims?.region, .china)
+        XCTAssertEqual(result.claims?.email, "x@y.z")
+    }
+}

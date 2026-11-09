@@ -8,7 +8,9 @@ enum UnitSystem: String, Codable, CaseIterable, Identifiable {
 }
 
 struct AppSettings: Codable, Equatable {
-    var region: FleetRegion = .northAmericaAsiaPacific
+    /// Where new Tesla accounts sign in (each linked account keeps its own). Starts from the
+    /// phone's country.
+    var region: FleetRegion = AppSettings.phoneRegion
     var units: UnitSystem = Locale.current.measurementSystem == .us ? .imperial : .metric
     var logger = LoggerSettings()
     /// Phone GPS during drives: far denser tracks, real elevation.
@@ -20,8 +22,9 @@ struct AppSettings: Codable, Equatable {
     /// saved by older builds still decode.
     var demoMode: Bool?
 
-    // Overrides for the values compiled in from Config/*.xcconfig.
+    // The developer app from setup, overriding the values compiled in from Config/*.xcconfig.
     var clientIDOverride: String = ""
+    /// Only read to move a secret saved by an older build into the Keychain (see AppModel).
     var clientSecretOverride: String = ""
     var redirectURIOverride: String = ""
 
@@ -42,15 +45,10 @@ struct AppSettings: Codable, Equatable {
         if let data = try? JSONEncoder().encode(stored) { UserDefaults.standard.set(data, forKey: Self.key) }
     }
 
-    var fleetConfig: FleetAppConfig? {
-        let info = Bundle.main.infoDictionary ?? [:]
-        func pick(_ override: String, _ key: String) -> String {
-            override.isEmpty ? ((info[key] as? String) ?? "") : override
-        }
-        let id = pick(clientIDOverride, "TeslaClientID")
-        let redirect = pick(redirectURIOverride, "TeslaRedirectURI")
-        guard !id.isEmpty, !redirect.isEmpty else { return nil }
-        let secret = pick(clientSecretOverride, "TeslaClientSecret")
-        return FleetAppConfig(clientID: id, clientSecret: secret.isEmpty ? nil : secret, redirectURI: redirect, region: region)
+    /// The Tesla region a phone set to this country most likely uses.
+    static var phoneRegion: FleetRegion {
+        let region = Locale.current.region
+        return .suggested(country: region?.identifier, continent: region?.continent?.identifier,
+                          subregion: region?.containingRegion?.identifier)
     }
 }

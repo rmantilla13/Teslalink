@@ -17,7 +17,7 @@ infrastructure. The logger, database, analytics and charts all run inside the iO
 │  │   ├─ Drive/ChargeSummarizer, GapReconciler, PhoneTrackMatcher│ │
 │  │   └─ LogStore (SQLite: positions, drives, charges, states)  │ │
 │  │ Analytics: efficiency, battery health, parked drain, stats  │ │
-│  │ FleetAPIClient + FleetAuth (OAuth PKCE, token refresh)      │ │
+│  │ FleetAPIClient + FleetAuth per account (PKCE, refresh)      │ │
 │  └─────────────────────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────────────┘
                                  │ HTTPS (read-only)

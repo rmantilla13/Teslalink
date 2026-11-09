@@ -34,8 +34,8 @@ open TeslaLink.xcodeproj
 
 Pick the **TeslaLink** scheme and an iPhone simulator, then Run. On the first screen tap
 **Explore with a demo car**. You get a month of sample drives and charges and a live
-charge from 55% to 80% that takes about two minutes (accelerated clock). No Tesla account
-needed.
+charge from 55% to 80% that takes about two minutes (accelerated clock). The demo starts
+fresh on every launch, so changes made in it don't last. No Tesla account needed.
 
 Re-run `xcodegen generate` whenever you add or remove files (sources come from `App/`).
 
@@ -56,13 +56,16 @@ xcrun simctl launch booted com.example.teslalink -TLDemo YES -TLTab drives
 `-TLDemo YES` runs demo mode for that launch only (not saved). `-TLTab` takes `car`,
 `drives`, `charges`, `stats` or `settings`. `-TLGeometry YES` adds a yellow strip with the
 content size, safe-area insets, hinge state and hinge position, for checking a new device or
-posture.
+posture. `-TLFakeAccount YES` pretends one Tesla account is linked (without a token), to see
+Settings' account rows and the reconnect state without signing in.
 
 ### The Duo open
 
 Open or partially open in landscape, TeslaLink splits at the hinge. The left half is the
-phone app (sections and the tab bar, as on the outer screen). The right half goes with the
-current section:
+phone app's screen for the current section; the right half goes with it. The menu moves into
+the side column the system keeps for the clock and Wi-Fi (on the right), below them, so both
+halves get the full height. Closed, and open in portrait, the menu is the tab bar along the
+bottom. The right half shows:
 
 - Car: this week's numbers, recent drives and the map, or live charging while the car charges.
 - Drives and Charging: the drive or session picked on the left. Lists select instead of
@@ -76,6 +79,8 @@ How it behaves:
 - Unfolding with a drive, charging session or live charging open on the outer screen moves
   it to the right pane.
 - Open in portrait, the Duo keeps the phone layout (not designed yet).
+- Full-width screens split at the hinge too: the welcome screen (story left, Connect right),
+  the Tesla developer setup (steps 1 and 2 left, step 3 right) and a setup link's review.
 
 The code is in `App/Views/DuoPanes.swift`. The hinge is read with `UIHingeInteraction`,
 which needs the iOS 27.1 SDK. Older Xcode builds leave it out (CI's Xcode 26.3 among them),
@@ -131,6 +136,9 @@ checked too.
 - Fixed: Drive detail used street names where the list used place names.
 - Fixed: missing values showed "Off"/"Yes" instead of an en dash.
 - Fixed: the demo charge sat at its 80% limit while still "charging".
+- Fixed: every demo launch kept another copy of the simulated charge (three extras on one
+  day, about 56 kWh), inflating the demo's totals. The demo database is now rebuilt at
+  launch.
 - Chrome now follows the design rather than the system: a screen header instead of
   navigation bars, a flat steel tab bar (owner's choice over Liquid Glass), chamfered row
   groups instead of rounded `List` sections, no glyphs in panel headers. See
@@ -141,6 +149,12 @@ checked too.
   The iOS 27.1 simulator runtime only offers the Duo, so an iPhone or iPad on 27.1 or later
   is unchecked. The no-hinge fallback was checked by withholding the Duo's hinge reports.
 - Fixed: on Car, the gap between the Charging chip and "Updated…" didn't open live charging.
+- Done: Tesla accounts link with one button, several accounts can be linked, and the
+  developer app is set up in the app or with a setup link (see docs/FLEET_API_SETUP.md).
+  Checked in the simulator up to Tesla's sign-in page (with a made-up client ID), including
+  the setup link's review and its warning for a foreign redirect. Not checked: a real sign-in,
+  several real accounts polling, and the Tesla behaviours the app reads but Tesla doesn't
+  document (the token's `ou_code` region and `sub`, 412 for an unregistered region).
 - Not done yet: the iPad artboard's two-column dashboard (Tonight's charge, Recent drives).
 - Still unverified: real Tesla sign-in and real-car data (needs the Fleet API setup),
   background location relaunch, BGAppRefresh, and Keychain on a device.

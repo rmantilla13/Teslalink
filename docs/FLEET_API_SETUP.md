@@ -33,19 +33,55 @@ vehicle commands later.
 
 ## 3. Configure the app
 
+The app walks you through steps 1 to 3: on the welcome screen, **Connect Tesla account**
+opens the setup when there's no developer app yet (later: **Settings → Advanced → Tesla
+developer app**). The quickest way to fill it in is the setup link the partner script prints
+at the end:
+
+```bash
+# already registered? print just the link (and a QR code with `brew install qrencode`)
+CLIENT_ID=... CLIENT_SECRET=... REGION=na LINK_ONLY=1 ./scripts/register-partner.sh
+```
+
+Scan the QR code with the iPhone's camera, or copy the `teslalink://setup?…` link into the
+setup screen's **Paste** button. The app shows what the link would change and asks before
+saving anything. It warns loudly when a link would send Tesla's sign-in anywhere but back to
+the app (`teslalink://auth/callback`), because whoever runs that address would receive your
+sign-in code. You can also type the client ID, secret and redirect URI in the same screen.
+
+The client secret is kept in the Keychain on the phone. Or build the developer app in:
+
 ```bash
 cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig   # git-ignored
 # fill in bundle id, team id, client id/secret, redirect URI
 xcodegen && open TeslaLink.xcodeproj
 ```
 
-You can also leave these empty and type them into **Settings → Advanced → Developer app**
-on the device.
-
 > **About the client secret.** Tesla's code exchange requires it, and anything compiled
-> into an app can be extracted. That's fine for a personal build installed on your own
-> phone. Don't distribute a build that contains it. A public release needs a tiny token
-> exchange endpoint instead, which is the one piece of "external stuff" you can't avoid.
+> into an app, typed into it or carried by a setup link can be extracted. That's fine for a
+> personal build on your own phone. Don't distribute a build that contains it, and don't
+> share the setup link or its QR code. A public release needs a tiny token exchange endpoint
+> instead, which is the one piece of "external stuff" you can't avoid.
+
+### Linking Tesla accounts
+
+After setup, **Connect Tesla account** opens Tesla's sign-in and comes straight back with the
+account's cars. Add more under **Settings → Tesla accounts → Add Tesla account**: Tesla's page
+opens without remembering the previous sign-in, so a second person can use their own
+details. Every account signs in through the same developer app. A car shared between two
+accounts (a second driver's) is logged once, by the account linked first. Disconnecting an
+account stops its cars updating; their history stays on the phone.
+
+**Regions.** Tesla keeps every account in one region: North America with Asia-Pacific,
+Europe with the Middle East and Africa, or China. The app starts from the phone's country
+(changeable under the Connect button). If Tesla's token says the account lives elsewhere,
+the app asks you to sign in once more there. Register the partner domain (step 2) in every
+region your accounts use; an account in an unregistered region shows that in Settings.
+
+**Not yet verified against a real account:** the app reads the region (`ou_code`) and user
+(`sub`) from Tesla's token, and treats HTTP 412 as "partner not registered in this region".
+Tesla doesn't document these, so they're read defensively: when a claim is missing, the app
+uses the region you picked and tells accounts apart by their cars.
 
 ## 4. Costs
 

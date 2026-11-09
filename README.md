@@ -41,15 +41,17 @@ scripts/                  One-time Tesla partner registration
 Working on a Mac? Start with [docs/LOCAL_DEV.md](docs/LOCAL_DEV.md).
 
 
-1. Set up a Tesla developer app: see [docs/FLEET_API_SETUP.md](docs/FLEET_API_SETUP.md).
-2. `cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig` and fill it in.
+1. Set up a Tesla developer app: the app walks you through it, or see
+   [docs/FLEET_API_SETUP.md](docs/FLEET_API_SETUP.md).
+2. Optional: `cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig` and fill it in, to
+   build the developer app in. Otherwise the app's setup (or a setup link) adds it.
 3. `brew install xcodegen && xcodegen && open TeslaLink.xcodeproj`
-4. Run on your phone. Sign in with Tesla, and allow location **Always** so drives are
-   logged automatically.
+4. Run on your phone. Tap **Connect Tesla account** (link as many accounts as you like),
+   and allow location **Always** so drives are logged automatically.
 
 No Tesla developer account yet? Tap **Explore with a demo car** on the first screen: a
 simulated Model Y with a month of generated drives and charges and a charge in progress. Demo
-data lives in its own database file and never mixes with your real log.
+data lives in its own database file, rebuilt at each launch, and never mixes with your real log.
 
 Core tests (Linux or macOS): `cd Packages/TeslaLinkCore && swift test`
 

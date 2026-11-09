@@ -139,7 +139,7 @@ struct CompanionPane: View {
             case .insights:
                 NavigationStack { StatsView(part: .details) }
             case .settings:
-                NavigationStack { GeofencesView() }
+                NavigationStack { GeofencesView(inPane: true) }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -210,6 +210,56 @@ struct CarCompanion: View {
         drives = (try? await model.store.drives(vin: vin, limit: 60)) ?? []
         charges = (try? await model.store.charges(vin: vin)) ?? []
         fences = Dictionary(uniqueKeysWithValues: ((try? await model.store.geofences()) ?? []).compactMap { g in g.id.map { ($0, g.name) } })
+    }
+}
+
+/// The open Duo's menu, down the side column the system keeps for the clock and Wi-Fi. The
+/// sections sit centred in the free height below them, lit like the tab bar's. The hairline
+/// and the selection bar face the content.
+struct DuoRail: View {
+    @Binding var selection: AppSection
+    let edge: HorizontalEdge
+    /// Clears the clock and Wi-Fi at the top of the column (about 100 pt on the Duo).
+    var statusHeight: CGFloat = 112
+
+    var body: some View {
+        let inner: Alignment = edge == .trailing ? .leading : .trailing
+        VStack(spacing: TL.Space.s2) {
+            ForEach(AppSection.allCases) { section in
+                let on = section == selection
+                Button { selection = section } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: section.symbol)
+                            .font(.system(size: 19, weight: .semibold))
+                            .frame(height: 24)
+                        Text(section.title)
+                            .font(TL.Typeface.sans(10, .semibold))
+                            .tracking(0.4)
+                    }
+                    .foregroundStyle(on ? TL.Palette.ion : TL.Palette.inkMuted)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 58)
+                    .background(on ? TL.Palette.surface1 : Color.clear)
+                    .overlay(alignment: inner) {
+                        if on {
+                            Rectangle().fill(TL.Palette.ion)
+                                .frame(width: 2)
+                                .padding(.vertical, 12)
+                                .tlGlow(radius: 6)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(section.title)
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+        .frame(maxHeight: .infinity)
+        .padding(.top, statusHeight)
+        .padding(.bottom, 34)
+        .background(alignment: inner) { Rectangle().fill(TL.Palette.edge).frame(width: 1) }
+        .background(TL.Palette.ground)
     }
 }
 

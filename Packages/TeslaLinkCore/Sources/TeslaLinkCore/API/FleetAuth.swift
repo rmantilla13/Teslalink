@@ -81,6 +81,18 @@ public struct PKCE: Sendable, Equatable {
     }
 }
 
+/// A completed sign-in: the token (already saved to the store) and what its claims say about
+/// the account (nil when the token isn't a readable JWT).
+public struct SignInResult: Sendable, Equatable {
+    public var token: OAuthToken
+    public var claims: TokenClaims?
+
+    public init(token: OAuthToken, claims: TokenClaims?) {
+        self.token = token
+        self.claims = claims
+    }
+}
+
 public enum AuthError: Error, Equatable, Sendable {
     case notSignedIn
     case stateMismatch
@@ -121,8 +133,10 @@ public actor FleetAuth: AccessTokenProvider {
         return c.url!
     }
 
-    /// Call with the redirect URL Tesla sends back to the app.
-    public func completeSignIn(callbackURL: URL, pkce: PKCE, now: Date = Date()) async throws {
+    /// Call with the redirect URL Tesla sends back to the app. The token is saved to the store
+    /// and returned with what its claims say about the account.
+    @discardableResult
+    public func completeSignIn(callbackURL: URL, pkce: PKCE, now: Date = Date()) async throws -> SignInResult {
         let items = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)?.queryItems ?? []
         guard items.first(where: { $0.name == "state" })?.value == pkce.state else { throw AuthError.stateMismatch }
         guard let code = items.first(where: { $0.name == "code" })?.value else { throw AuthError.missingCode }
@@ -135,8 +149,9 @@ public actor FleetAuth: AccessTokenProvider {
             "audience": config.region.apiBase.absoluteString,
         ]
         if let s = config.clientSecret, !s.isEmpty { form["client_secret"] = s }
-        let token = try await requestToken(form, previousRefresh: nil, now: now)
+        let (token, idToken) = try await requestToken(form, previousRefresh: nil, now: now)
         store.save(token)
+        return SignInResult(token: token, claims: TokenClaims.combined(accessToken: token.accessToken, idToken: idToken))
     }
 
     public func signOut() { store.save(nil) }
@@ -156,7 +171,7 @@ public actor FleetAuth: AccessTokenProvider {
         if let refreshTask { return try await refreshTask.value }
         guard let t = store.load() else { throw AuthError.notSignedIn }
         let form = ["grant_type": "refresh_token", "client_id": config.clientID, "refresh_token": t.refreshToken]
-        let task = Task { try await self.requestToken(form, previousRefresh: t.refreshToken, now: Date()) }
+        let task = Task { try await self.requestToken(form, previousRefresh: t.refreshToken, now: Date()).token }
         refreshTask = task
         defer { refreshTask = nil }
         do {
@@ -169,7 +184,7 @@ public actor FleetAuth: AccessTokenProvider {
         }
     }
 
-    private func requestToken(_ form: [String: String], previousRefresh: String?, now: Date) async throws -> OAuthToken {
+    private func requestToken(_ form: [String: String], previousRefresh: String?, now: Date) async throws -> (token: OAuthToken, idToken: String?) {
         var req = URLRequest(url: Self.tokenURL)
         req.httpMethod = "POST"
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
@@ -182,7 +197,7 @@ public actor FleetAuth: AccessTokenProvider {
         }
         let r = try JSONDecoder().decode(FleetAPI.TokenResponse.self, from: data)
         guard let refresh = r.refresh_token ?? previousRefresh else { throw AuthError.tokenEndpoint(status: http.statusCode, body: "no refresh_token") }
-        return OAuthToken(accessToken: r.access_token, refreshToken: refresh, expiresAt: now.addingTimeInterval(r.expires_in))
+        return (OAuthToken(accessToken: r.access_token, refreshToken: refresh, expiresAt: now.addingTimeInterval(r.expires_in)), r.id_token)
     }
 
     static func formEncode(_ s: String) -> String {

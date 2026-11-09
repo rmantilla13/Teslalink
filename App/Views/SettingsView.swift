@@ -17,19 +17,26 @@ struct SettingsView: View {
             }
             if model.isDemo {
                 Section {
-                    Button("Leave demo and sign in") { model.leaveDemo() }
+                    Button("Leave demo and connect your Tesla") { model.leaveDemo() }
                 } header: {
                     Text("Demo mode")
                 } footer: {
                     Text("You're looking at a simulated car and generated history, stored separately from your own data.")
                 }
-            }
-            Section("Account") {
-                Picker("Region", selection: $model.settings.region) {
-                    ForEach(FleetRegion.allCases, id: \.self) { Text($0.displayName).tag($0) }
+            } else {
+                Section {
+                    ForEach(model.accounts) { account in
+                        NavigationLink { AccountDetailView(accountID: account.id) } label: { AccountRow(account: account) }
+                    }
+                    NavigationLink { AddAccountView() } label: {
+                        Label("Add Tesla account", systemImage: "plus")
+                    }
+                    Button("Reload vehicles") { Task { await model.refreshVehicleList() } }
+                } header: {
+                    Text("Tesla accounts")
+                } footer: {
+                    Text("Cars from every linked account appear together. A car shared by two accounts is logged once.")
                 }
-                Button("Reload vehicles") { Task { await model.refreshVehicleList() } }
-                Button("Sign out", role: .destructive) { Task { await model.signOut() } }
             }
 
             Section("Display") {
@@ -72,7 +79,7 @@ struct SettingsView: View {
             }
 
             Section("Advanced") {
-                NavigationLink("Developer app") { DeveloperAppSettingsView() }
+                NavigationLink("Tesla developer app") { TeslaSetupView(backTitle: "Settings") }
                 NavigationLink("About & licenses") { AboutView() }
             }
         }
@@ -88,32 +95,160 @@ struct SettingsView: View {
     }
 }
 
-struct DeveloperAppSettingsView: View {
+/// One linked account in Settings: who it is, its cars and whether it's connected.
+private struct AccountRow: View {
     @Environment(AppModel.self) private var model
+    let account: TeslaAccount
 
     var body: some View {
-        @Bindable var model = model
-        Form {
-            Section {
-                TextField("Client ID", text: $model.settings.clientIDOverride).textInputAutocapitalization(.never).autocorrectionDisabled()
-                SecureField("Client secret", text: $model.settings.clientSecretOverride)
-                TextField("Redirect URI", text: $model.settings.redirectURIOverride).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    .keyboardType(.URL)
-            } footer: {
-                Text("Leave empty to use the values built into the app (Config/Secrets.xcconfig). Create the app at developer.tesla.com; see docs/FLEET_API_SETUP.md.")
+        let status = model.accountStatus[account.id]
+        let cars = model.cars(of: account).map(\.displayName)
+        HStack(spacing: TL.Space.s3) {
+            Circle()
+                .fill(status.map(AccountStatusLine.color) ?? TL.Palette.steelDeep)
+                .frame(width: 8, height: 8)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(account.title ?? "Tesla account").foregroundStyle(TL.Palette.ink)
+                Text(([cars.isEmpty ? "No cars yet" : cars.joined(separator: ", "), account.region.shortName]).joined(separator: " · "))
+                    .font(TL.Typeface.caption)
+                    .foregroundStyle(TL.Palette.inkMuted)
+                if let status, status != .connected {
+                    AccountStatusLine(status: status)
+                }
             }
         }
-        .navigationTitle("Developer app")
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// "Connected", "Sign-in expired", or what Tesla said.
+private struct AccountStatusLine: View {
+    let status: AccountStatus
+
+    var body: some View {
+        Text(text).font(TL.Typeface.caption).foregroundStyle(Self.color(status))
+    }
+
+    private var text: String {
+        switch status {
+        case .connected: "Connected"
+        case .needsReconnect: "Sign-in expired. Reconnect to keep logging."
+        case .problem(let message): message
+        }
+    }
+
+    static func color(_ status: AccountStatus) -> Color {
+        status == .connected ? TL.Palette.charge : TL.Palette.amber
+    }
+}
+
+/// One linked account: status, cars, reconnect and disconnect.
+struct AccountDetailView: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    let accountID: String
+    @State private var confirmDisconnect = false
+
+    var body: some View {
+        ScrollView {
+            if let account = model.accounts.first(where: { $0.id == accountID }) {
+                let status = model.accountStatus[account.id]
+                VStack(alignment: .leading, spacing: TL.Space.s4) {
+                    ScreenHeader(back: "Settings", label: "Tesla account · \(account.region.shortName)", title: account.title ?? "Tesla account", titleSize: 28)
+                    Card(title: "Status", lightbar: false) {
+                        VStack(alignment: .leading, spacing: TL.Space.s3) {
+                            AccountStatusLine(status: status ?? .connected)
+                            if status != .connected && status != nil {
+                                ConnectTeslaButton(title: "Reconnect", reconnecting: account)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    Card(title: "Cars", lightbar: false) {
+                        let cars = model.cars(of: account)
+                        VStack(alignment: .leading, spacing: TL.Space.s2) {
+                            if cars.isEmpty {
+                                Text("None yet. They appear after the next refresh.").font(TL.Typeface.caption).foregroundStyle(TL.Palette.inkMuted)
+                            }
+                            ForEach(cars) { car in
+                                Text(car.displayName).font(TL.Typeface.sans(15, .semibold)).foregroundStyle(TL.Palette.ink)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    VStack(alignment: .leading, spacing: TL.Space.s1) {
+                        Button("Disconnect this account", role: .destructive) { confirmDisconnect = true }
+                            .buttonStyle(.tlSecondary)
+                        Text("Its cars stop updating. Their history stays on this phone.")
+                            .font(TL.Typeface.caption).foregroundStyle(TL.Palette.inkMuted)
+                    }
+                }
+                .padding(.horizontal, TL.Space.s4)
+                .padding(.bottom, TL.Space.s6)
+            }
+        }
+        .tlScreen()
+        .confirmationDialog("Disconnect this Tesla account?", isPresented: $confirmDisconnect, titleVisibility: .visible) {
+            Button("Disconnect", role: .destructive) {
+                Task {
+                    await model.disconnect(accountID)
+                    dismiss()
+                }
+            }
+        } message: {
+            Text("TeslaLink stops logging its cars. You can connect it again later.")
+        }
+    }
+}
+
+/// Linking another Tesla account (a partner's car, a second household).
+struct AddAccountView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: TL.Space.s4) {
+                ScreenHeader(back: "Settings", label: "Tesla accounts", title: "Add an account")
+                Text("Sign in with the other Tesla account. Tesla's page opens without the last sign-in remembered, so you can use different details. Its cars join the switcher; cars you already log stay as they are.")
+                    .font(TL.Typeface.body)
+                    .foregroundStyle(TL.Palette.inkMuted)
+                ConnectTeslaButton(title: "Connect another account", onLinked: { dismiss() })
+                    .frame(maxWidth: .infinity)
+            }
+            .padding(.horizontal, TL.Space.s4)
+            .padding(.bottom, TL.Space.s6)
+        }
+        .tlScreen()
     }
 }
 
 struct GeofencesView: View {
     @Environment(AppModel.self) private var model
+    /// In the open Duo's right pane: its own header with the add button, since the system bar's
+    /// button would land in the side column under the menu.
+    var inPane = false
     @State private var fences: [Geofence] = []
     @State private var editing: Geofence?
 
     var body: some View {
         List {
+            if inPane {
+                Section {
+                    ScreenHeader(label: "Settings", title: Text("Places")) {
+                        Button { editing = newFence() } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(TL.Palette.ion)
+                                .frame(width: 44, height: 44)
+                                .background(ChamferedRectangle(cut: TL.Chamfer.sm).fill(TL.Palette.surface2))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Add place")
+                    }
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                }
+            }
             ForEach(fences) { g in
                 Button { editing = g } label: {
                     VStack(alignment: .leading) {
@@ -135,13 +270,19 @@ struct GeofencesView: View {
         .overlay { if fences.isEmpty { ContentUnavailableView("No places", systemImage: "mappin", description: Text("Add Home to name drives and price home charging.")) } }
         .tlListStyle()
         .navigationTitle("Places")
+        .toolbar(inPane ? .hidden : .automatic, for: .navigationBar)
+        // Touching the side column, the list would reach in under the menu: stop short of it.
+        .padding(.trailing, inPane ? TL.Space.s4 : 0)
         .toolbar {
-            Button { editing = newFence() } label: { Label("Add", systemImage: "plus") }
+            if !inPane {
+                Button { editing = newFence() } label: { Label("Add", systemImage: "plus") }
+            }
         }
         .sheet(item: $editing) { g in
             NavigationStack { GeofenceEditor(fence: g) { saved in Task { try? await model.store.save(saved); await load(); model.markDataChanged() } } }
         }
-        .task { await load() }
+        // Reloads with the data: the demo's places are seeded just after launch.
+        .task(id: model.dataVersion) { await load() }
     }
 
     private func load() async { fences = (try? await model.store.geofences()) ?? [] }

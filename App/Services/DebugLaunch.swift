@@ -5,6 +5,7 @@ import Foundation
 ///     -TLDemo YES          start in demo mode (skips onboarding)
 ///     -TLTab drives        open on a tab: car, drives, charges, stats, settings
 ///     -TLGeometry YES      overlay the content size, safe-area insets and hinge state
+///     -TLFakeAccount YES   pretend one Tesla account is linked (no token), to see Settings' account rows
 ///
 /// Example: `xcrun simctl launch booted <bundle id> -TLDemo YES -TLTab stats`
 enum DebugLaunch {
@@ -12,10 +13,12 @@ enum DebugLaunch {
     static let demo = UserDefaults.standard.bool(forKey: "TLDemo")
     static let tab = UserDefaults.standard.string(forKey: "TLTab")
     static let geometry = UserDefaults.standard.bool(forKey: "TLGeometry")
+    static let fakeAccount = UserDefaults.standard.bool(forKey: "TLFakeAccount")
     #else
     static let demo = false
     static let tab: String? = nil
     static let geometry = false
+    static let fakeAccount = false
     #endif
 
     /// The iPad sidebar section matching `tab`.
