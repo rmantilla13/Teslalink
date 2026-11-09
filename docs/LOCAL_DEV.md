@@ -99,10 +99,11 @@ your phone, Run. Allow location **Always** to get automatic drive logging.
 
 ## 6. Connecting your real car
 
-Follow `docs/FLEET_API_SETUP.md`: create a developer app at developer.tesla.com, register
-your domain (`scripts/register-partner.sh`), then put the client id, secret and redirect
-URI into `Config/Secrets.xcconfig` (or type them into Settings › Advanced › Developer
-app on the device).
+Follow `docs/FLEET_API_SETUP.md`: create a developer app at developer.tesla.com and register
+your domain (`scripts/register-partner.sh`, which ends by printing a setup link). Then open
+the setup link on the phone, or tap Connect Tesla account and follow the steps (they're also
+under Settings › Advanced › Tesla developer app). The client ID, secret and redirect URI can
+also go into `Config/Secrets.xcconfig` instead.
 
 ## 7. Where things are
 
@@ -148,6 +149,9 @@ checked too.
   (both orientations) and an iPad were checked on iOS 27.0, where the hinge code doesn't run.
   The iOS 27.1 simulator runtime only offers the Duo, so an iPhone or iPad on 27.1 or later
   is unchecked. The no-hinge fallback was checked by withholding the Duo's hinge reports.
+- Done: on the open Duo the menu sits in the side column (see section 4). Checked open,
+  switching sections from it, and unfolding with a screen pushed. Not yet checked with it:
+  partially open, and folding back to closed.
 - Fixed: on Car, the gap between the Charging chip and "Updated…" didn't open live charging.
 - Done: Tesla accounts link with one button, several accounts can be linked, and the
   developer app is set up in the app or with a setup link (see docs/FLEET_API_SETUP.md).
