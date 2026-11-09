@@ -44,7 +44,14 @@ scripts/                  One-time Tesla partner registration
 4. Run on your phone. Sign in with Tesla, and allow location **Always** so drives are
    logged automatically.
 
+No Tesla developer account yet? Tap **Explore with a demo car** on the first screen: a
+simulated Model Y with a month of generated drives and charges and a charge in progress. Demo
+data lives in its own database file and never mixes with your real log.
+
 Core tests (Linux or macOS): `cd Packages/TeslaLinkCore && swift test`
+
+CI builds the iOS app with Xcode on every push (`.github/workflows/ios-build.yml`) and runs the
+core tests on Linux and macOS.
 
 ## How it works on iOS
 
