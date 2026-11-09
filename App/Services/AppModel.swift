@@ -38,9 +38,11 @@ final class AppModel {
     private var lastAddressRun = Date.distantPast
 
     init() {
-        settings = AppSettings.load()
-        store = Self.openStore(demo: settings.demoMode == true)
-        addresses = AddressResolver(store: store)
+        let loaded = AppSettings.load()
+        let db = Self.openStore(demo: loaded.demoMode == true)
+        settings = loaded
+        store = db
+        addresses = AddressResolver(store: db)
         phone.onPositions = { [weak self] points in
             Task { await self?.ingestPhone(points) }
         }
