@@ -158,92 +158,11 @@ struct DriveDetailView: View {
         let f = Fmt(model.settings.units)
         ScrollView {
             VStack(spacing: TL.Space.s6) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(drive.startDate.formatted(.dateTime.weekday(.abbreviated).day().month()) + " · "
-                         + drive.startDate.formatted(date: .omitted, time: .shortened)
-                         + (drive.endDate.map { " – " + $0.formatted(date: .omitted, time: .shortened) } ?? ""))
-                        .tlLabel()
-                    (Text(drive.startAddress ?? "Start") + Text(" → ").foregroundColor(TL.Palette.edgeStrong) + Text(drive.endAddress ?? (drive.isOpen ? "driving" : "End")))
-                        .font(TL.Typeface.display(28))
-                        .foregroundStyle(TL.Palette.ink)
-                        .lineLimit(2)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                Map {
-                    // Glow under the route, then the route coloured by the chosen metric.
-                    MapPolyline(coordinates: positions.map(\.coordinate))
-                        .stroke(TL.Palette.ion.opacity(0.25), style: StrokeStyle(lineWidth: 10, lineCap: .round, lineJoin: .round))
-                    ForEach(Array(segments.enumerated()), id: \.offset) { _, seg in
-                        MapPolyline(coordinates: seg.coords).stroke(seg.color, style: StrokeStyle(lineWidth: 4, lineCap: .round))
-                    }
-                    if let a = positions.first {
-                        Annotation("Start", coordinate: a.coordinate) { MapPin(color: TL.Palette.charge) }
-                    }
-                    if let b = positions.last, !drive.isOpen {
-                        Annotation("End", coordinate: b.coordinate) { MapPin(color: TL.Palette.ink) }
-                    }
-                    if colorBy == .speed, let top = positions.filter({ $0.speedKmh != nil }).max(by: { $0.speedKmh! < $1.speedKmh! }) {
-                        Annotation("Top speed", coordinate: top.coordinate, anchor: .bottom) {
-                            ValueTag(text: f.speed(top.speedKmh), color: TL.Palette.lightbar)
-                        }
-                    }
-                }
-                .mapStyle(.standard(elevation: .flat, emphasis: .muted, pointsOfInterest: .excludingAll))
-                .environment(\.colorScheme, .dark)
-                .frame(height: 300)
-                .clipShape(ChamferedRectangle(cut: TL.Chamfer.lg))
-                .overlay(alignment: .bottom) {
-                    if colorBy == .speed { HeatLegend(low: "0", high: f.speed(positions.compactMap(\.speedKmh).max())).padding(12) }
-                }
-
+                header
+                routeMap(f)
                 TLSegmented(options: ColorBy.allCases, selection: $colorBy) { $0.rawValue }
-
-                Card(title: "Summary", symbol: "list.bullet.rectangle") {
-                    Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 10) {
-                        GridRow { Metric(label: "Distance", value: f.distance(drive.distanceKm)); Metric(label: "Duration", value: f.duration(minutes: drive.durationMin)) }
-                        GridRow { Metric(label: "Avg speed", value: f.speed(drive.averageSpeedKmh)); Metric(label: "Top speed", value: f.speed(drive.speedMaxKmh)) }
-                        GridRow { Metric(label: "Energy", value: f.energy(drive.energyUsedKwh)); Metric(label: "Efficiency", value: f.efficiency(whPerKm: drive.efficiencyWhPerKm)) }
-                        GridRow { Metric(label: "Battery", value: "\(drive.startBatteryLevel.map(String.init) ?? "–")% → \(drive.endBatteryLevel.map(String.init) ?? "–")%")
-                                  Metric(label: "Range used", value: f.distance(rangeUsed, digits: 0)) }
-                        GridRow { Metric(label: "Ascent", value: f.elevation(drive.ascentM)); Metric(label: "Descent", value: f.elevation(drive.descentM)) }
-                        GridRow { Metric(label: "Max power", value: f.power(drive.powerMaxKw)); Metric(label: "Max regen", value: f.power(drive.powerMinKw.map { -$0 })) }
-                        GridRow { Metric(label: "Outside", value: f.temperature(drive.outsideTempAvgC)); Metric(label: "Inside", value: f.temperature(drive.insideTempAvgC)) }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    if drive.isInferred {
-                        Label("Reconstructed from before/after readings; the route and timing are approximate.", systemImage: "info.circle")
-                            .font(TL.Typeface.caption).foregroundStyle(TL.Palette.inkMuted)
-                    }
-                }
-
-                let speed = positions.compactMap { p in p.speedKmh.map { TLPoint(x: p.timestamp, y: f.km($0)) } }
-                if speed.count > 2 {
-                    Card(title: "Speed", symbol: "speedometer", lightbar: false, aside: AnyView(ChartUnit(text: f.speedUnit))) {
-                        TLLineChart(points: speed, color: TL.Palette.ion, height: 150)
-                    }
-                }
-                let power = positions.filter { $0.powerKw != nil && $0.source != .phone }
-                if power.count > 2 {
-                    Card(title: "Power", symbol: "bolt", lightbar: false,
-                         aside: AnyView(ChartLegend(items: [("Drive", TL.Palette.ion), ("Regen", TL.Palette.charge)]))) {
-                        Chart(power, id: \.timestamp) { p in
-                            BarMark(x: .value("Time", p.timestamp), y: .value("kW", p.powerKw!))
-                                .foregroundStyle(TLBars.signedColor(p.powerKw!))
-                            RuleMark(y: .value("Zero", 0)).foregroundStyle(TL.Palette.edgeStrong).lineStyle(StrokeStyle(lineWidth: 1))
-                        }
-                        .tlChartAxes()
-                        .frame(height: 130)
-                    }
-                }
-                let elevation = positions.compactMap { p in p.elevationM.map { TLPoint(x: p.timestamp, y: $0) } }
-                if elevation.count > 5, let lo = elevation.map(\.y).min(), let hi = elevation.map(\.y).max() {
-                    Card(title: "Elevation", symbol: "mountain.2", lightbar: false,
-                         aside: AnyView(ChartUnit(text: "\(f.elevation(lo)) – \(f.elevation(hi))"))) {
-                        TLLineChart(points: elevation, color: TL.Palette.steel, markMax: false,
-                                    yDomain: (lo - 10)...(hi + 10), height: 90)
-                    }
-                }
+                summary(f)
+                charts(f)
             }
             .padding(TL.Space.s4)
             .frame(maxWidth: 1000)
@@ -255,6 +174,121 @@ struct DriveDetailView: View {
         .task(id: model.dataVersion) {
             if let id = drive.id { positions = (try? await model.store.positions(driveID: id)) ?? [] }
         }
+    }
+
+    private var dateLine: String {
+        let day = drive.startDate.formatted(.dateTime.weekday(.abbreviated).day().month())
+        let from = drive.startDate.formatted(date: .omitted, time: .shortened)
+        let to = drive.endDate.map { " – " + $0.formatted(date: .omitted, time: .shortened) } ?? ""
+        return day + " · " + from + to
+    }
+
+    private var routeTitle: Text {
+        let start = Text(drive.startAddress ?? "Start")
+        let arrow = Text(" → ").foregroundColor(TL.Palette.edgeStrong)
+        let end = Text(drive.endAddress ?? (drive.isOpen ? "driving" : "End"))
+        return start + arrow + end
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(dateLine).tlLabel()
+            routeTitle
+                .font(TL.Typeface.display(28))
+                .foregroundStyle(TL.Palette.ink)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var topSpeedPosition: Position? {
+        positions.filter { $0.speedKmh != nil }.max { ($0.speedKmh ?? 0) < ($1.speedKmh ?? 0) }
+    }
+
+    private func routeMap(_ f: Fmt) -> some View {
+        Map {
+            // Glow under the route, then the route coloured by the chosen metric.
+            MapPolyline(coordinates: positions.map(\.coordinate))
+                .stroke(TL.Palette.ion.opacity(0.25), style: StrokeStyle(lineWidth: 10, lineCap: .round, lineJoin: .round))
+            ForEach(Array(segments.enumerated()), id: \.offset) { _, seg in
+                MapPolyline(coordinates: seg.coords).stroke(seg.color, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+            }
+            if let a = positions.first {
+                Annotation("Start", coordinate: a.coordinate) { MapPin(color: TL.Palette.charge) }
+            }
+            if let b = positions.last, !drive.isOpen {
+                Annotation("End", coordinate: b.coordinate) { MapPin(color: TL.Palette.ink) }
+            }
+            if colorBy == .speed, let top = topSpeedPosition {
+                Annotation("Top speed", coordinate: top.coordinate, anchor: .bottom) {
+                    ValueTag(text: f.speed(top.speedKmh), color: TL.Palette.lightbar)
+                }
+            }
+        }
+        .mapStyle(.standard(elevation: .flat, emphasis: .muted, pointsOfInterest: .excludingAll))
+        .environment(\.colorScheme, .dark)
+        .frame(height: 300)
+        .clipShape(ChamferedRectangle(cut: TL.Chamfer.lg))
+        .overlay(alignment: .bottom) {
+            if colorBy == .speed { HeatLegend(low: "0", high: f.speed(positions.compactMap(\.speedKmh).max())).padding(12) }
+        }
+    }
+
+    private func summary(_ f: Fmt) -> some View {
+        Card(title: "Summary", symbol: "list.bullet.rectangle") {
+            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 10) {
+                GridRow { Metric(label: "Distance", value: f.distance(drive.distanceKm)); Metric(label: "Duration", value: f.duration(minutes: drive.durationMin)) }
+                GridRow { Metric(label: "Avg speed", value: f.speed(drive.averageSpeedKmh)); Metric(label: "Top speed", value: f.speed(drive.speedMaxKmh)) }
+                GridRow { Metric(label: "Energy", value: f.energy(drive.energyUsedKwh)); Metric(label: "Efficiency", value: f.efficiency(whPerKm: drive.efficiencyWhPerKm)) }
+                GridRow { Metric(label: "Battery", value: batteryLine)
+                          Metric(label: "Range used", value: f.distance(rangeUsed, digits: 0)) }
+                GridRow { Metric(label: "Ascent", value: f.elevation(drive.ascentM)); Metric(label: "Descent", value: f.elevation(drive.descentM)) }
+                GridRow { Metric(label: "Max power", value: f.power(drive.powerMaxKw)); Metric(label: "Max regen", value: f.power(drive.powerMinKw.map { -$0 })) }
+                GridRow { Metric(label: "Outside", value: f.temperature(drive.outsideTempAvgC)); Metric(label: "Inside", value: f.temperature(drive.insideTempAvgC)) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if drive.isInferred {
+                Label("Reconstructed from before/after readings; the route and timing are approximate.", systemImage: "info.circle")
+                    .font(TL.Typeface.caption).foregroundStyle(TL.Palette.inkMuted)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func charts(_ f: Fmt) -> some View {
+        let speed = positions.compactMap { p in p.speedKmh.map { TLPoint(x: p.timestamp, y: f.km($0)) } }
+        if speed.count > 2 {
+            Card(title: "Speed", symbol: "speedometer", lightbar: false, aside: AnyView(ChartUnit(text: f.speedUnit))) {
+                TLLineChart(points: speed, color: TL.Palette.ion, height: 150)
+            }
+        }
+        let power = positions.filter { $0.powerKw != nil && $0.source != .phone }
+        if power.count > 2 {
+            Card(title: "Power", symbol: "bolt", lightbar: false,
+                 aside: AnyView(ChartLegend(items: [("Drive", TL.Palette.ion), ("Regen", TL.Palette.charge)]))) {
+                Chart(power, id: \.timestamp) { p in
+                    BarMark(x: .value("Time", p.timestamp), y: .value("kW", p.powerKw!))
+                        .foregroundStyle(TLBars.signedColor(p.powerKw!))
+                    RuleMark(y: .value("Zero", 0)).foregroundStyle(TL.Palette.edgeStrong).lineStyle(StrokeStyle(lineWidth: 1))
+                }
+                .tlChartAxes()
+                .frame(height: 130)
+            }
+        }
+        let elevation = positions.compactMap { p in p.elevationM.map { TLPoint(x: p.timestamp, y: $0) } }
+        if elevation.count > 5, let lo = elevation.map(\.y).min(), let hi = elevation.map(\.y).max() {
+            Card(title: "Elevation", symbol: "mountain.2", lightbar: false,
+                 aside: AnyView(ChartUnit(text: "\(f.elevation(lo)) – \(f.elevation(hi))"))) {
+                TLLineChart(points: elevation, color: TL.Palette.steel, markMax: false,
+                            yDomain: (lo - 10)...(hi + 10), height: 90)
+            }
+        }
+    }
+
+    private var batteryLine: String {
+        let a = drive.startBatteryLevel.map { "\($0)%" } ?? "–"
+        let b = drive.endBatteryLevel.map { "\($0)%" } ?? "–"
+        return a + " → " + b
     }
 
     private var rangeUsed: Double? {
