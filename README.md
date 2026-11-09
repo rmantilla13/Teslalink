@@ -38,6 +38,9 @@ scripts/                  One-time Tesla partner registration
 
 ## Getting started
 
+Working on a Mac? Start with [docs/LOCAL_DEV.md](docs/LOCAL_DEV.md).
+
+
 1. Set up a Tesla developer app: see [docs/FLEET_API_SETUP.md](docs/FLEET_API_SETUP.md).
 2. `cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig` and fill it in.
 3. `brew install xcodegen && xcodegen && open TeslaLink.xcodeproj`
