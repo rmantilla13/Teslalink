@@ -60,6 +60,14 @@ struct DashboardView: View {
         .background(TL.Palette.ground)
         .navigationTitle(vehicle?.displayName ?? "TeslaLink")
         .toolbar {
+            if model.isDemo {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Text("Demo").tlLabel().foregroundStyle(TL.Palette.amber)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(ChamferedRectangle(cut: 4).fill(TL.Palette.amber.opacity(0.14)))
+                        .accessibilityLabel("Demo mode")
+                }
+            }
             if model.vehicles.count > 1 {
                 ToolbarItem(placement: .topBarLeading) {
                     Menu {

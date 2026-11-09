@@ -26,7 +26,7 @@ final class AppModel {
     private(set) var isSignedIn = false
     var errorMessage: String?
 
-    let store: LogStore
+    private(set) var store: LogStore
     private(set) var auth: FleetAuth?
     private var client: FleetAPIClient?
     private var loggers: [String: VehicleLogger] = [:]
@@ -34,19 +34,12 @@ final class AppModel {
     private var loopTask: Task<Void, Never>?
     private(set) var isForeground = false
     let phone = PhoneDriveTracker()
-    private let addresses: AddressResolver
+    private var addresses: AddressResolver
     private var lastAddressRun = Date.distantPast
 
     init() {
         settings = AppSettings.load()
-        let url = URL.applicationSupportDirectory.appending(path: "TeslaLink", directoryHint: .isDirectory)
-        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        let dbURL = url.appending(path: "log.sqlite")
-        do {
-            store = try LogStore(path: dbURL.path)
-        } catch {
-            fatalError("Could not open database: \(error)")
-        }
+        store = Self.openStore(demo: settings.demoMode == true)
         addresses = AddressResolver(store: store)
         phone.onPositions = { [weak self] points in
             Task { await self?.ingestPhone(points) }
@@ -59,6 +52,44 @@ final class AppModel {
         Task { await bootstrap() }
     }
 
+    var isDemo: Bool { settings.demoMode == true }
+
+    /// Real and demo data live in separate files so they never mix.
+    private static func openStore(demo: Bool) -> LogStore {
+        let url = URL.applicationSupportDirectory.appending(path: "TeslaLink", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let dbURL = url.appending(path: demo ? "demo.sqlite" : "log.sqlite")
+        do {
+            return try LogStore(path: dbURL.path)
+        } catch {
+            fatalError("Could not open database: \(error)")
+        }
+    }
+
+    // MARK: Demo
+
+    func enterDemo() { settings.demoMode = true }
+    func leaveDemo() { settings.demoMode = nil }
+
+    private func startDemo() async {
+        do {
+            try await DemoData.seed(store)
+        } catch {
+            errorMessage = "Couldn't create demo data: \(error)"
+            return
+        }
+        vehicles = (try? await store.vehicles()) ?? []
+        var fast = settings.logger
+        fast.chargingInterval = 5
+        fast.onlineInterval = 10
+        fast.drivingInterval = 5
+        let car = await DemoCar(store: store)
+        loggers[DemoData.vin] = await VehicleLogger(vin: DemoData.vin, source: car, store: store, settings: fast)
+        settings.selectedVIN = DemoData.vin
+        await pollAll(force: true)
+        ensureLoop()
+    }
+
     var selectedVehicle: Vehicle? {
         vehicles.first { $0.vin == settings.selectedVIN } ?? vehicles.first
     }
@@ -68,6 +99,10 @@ final class AppModel {
     // MARK: Setup
 
     private func configureAPI() {
+        if isDemo {
+            auth = nil; client = nil; isSignedIn = true
+            return
+        }
         guard let config = settings.fleetConfig else {
             auth = nil; client = nil; isSignedIn = false
             return
@@ -79,6 +114,19 @@ final class AppModel {
     }
 
     private func applySettings(_ old: AppSettings) {
+        if old.demoMode != settings.demoMode {
+            loopTask?.cancel()
+            loopTask = nil
+            loggers = [:]
+            live = [:]
+            store = Self.openStore(demo: isDemo)
+            addresses = AddressResolver(store: store)
+            if !isDemo { settings.selectedVIN = nil }
+            configureAPI()
+            dataVersion += 1
+            Task { await bootstrap() }
+            return
+        }
         if old.region != settings.region || old.clientIDOverride != settings.clientIDOverride
             || old.clientSecretOverride != settings.clientSecretOverride || old.redirectURIOverride != settings.redirectURIOverride {
             configureAPI()
@@ -95,6 +143,7 @@ final class AppModel {
 
     private func bootstrap() async {
         vehicles = (try? await store.vehicles()) ?? []
+        if isDemo { await startDemo(); return }
         if settings.usePhoneGPS { phone.start() }
         guard isSignedIn else { return }
         await refreshVehicleList()
@@ -102,7 +151,7 @@ final class AppModel {
     }
 
     func refreshVehicleList() async {
-        guard let client else { return }
+        guard !isDemo, let client else { return }
         do {
             for v in try await client.vehicles() {
                 var existing = (try? await store.vehicle(vin: v.vin)) ?? Vehicle(vin: v.vin, displayName: v.display_name ?? "Tesla")
@@ -140,6 +189,7 @@ final class AppModel {
     }
 
     func signOut() async {
+        if isDemo { leaveDemo(); return }
         await auth?.signOut()
         isSignedIn = false
         loopTask?.cancel()
@@ -223,7 +273,7 @@ final class AppModel {
     }
 
     private func ingestPhone(_ points: [Position]) async {
-        guard settings.usePhoneGPS else { return }
+        guard settings.usePhoneGPS, !isDemo else { return }
         // Give the track to a car that is driving; otherwise to the selected one. Points that
         // never match a drive are discarded later (see PhoneTrackMatcher / prune).
         var target: VehicleLogger?

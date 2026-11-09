@@ -392,3 +392,48 @@ final class LiveAndPreviewTests: XCTestCase {
         XCTAssertNotNil(drive?.routePreview)
     }
 }
+
+final class DemoDataTests: XCTestCase {
+    func testDemoHistoryIsPlausible() async throws {
+        let store = try LogStore.inMemory()
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        try await DemoData.seed(store, days: 30, now: now)
+        let drives = try await store.drives(vin: DemoData.vin)
+        let charges = try await store.charges(vin: DemoData.vin)
+        XCTAssertGreaterThan(drives.count, 25)
+        XCTAssertGreaterThan(charges.count, 3)
+        for d in drives {
+            XCTAssertFalse(d.isOpen)
+            XCTAssertGreaterThan(d.distanceKm ?? 0, 1)
+            XCTAssertNotNil(d.routePreview)
+            XCTAssertLessThan(d.endDate!, now)
+            let e = try XCTUnwrap(d.efficiencyWhPerKm)
+            XCTAssert((100...300).contains(e), "efficiency \(e) Wh/km")
+        }
+        for c in charges {
+            XCTAssertGreaterThan(c.energyAddedKwh ?? 0, 1)
+            XCTAssertNotNil(c.endDate)
+        }
+        XCTAssertTrue(charges.contains { $0.cost != nil }, "home charges are priced")
+        // Seeding twice is a no-op.
+        try await DemoData.seed(store, days: 30, now: now)
+        let again = try await store.drives(vin: DemoData.vin).count
+        XCTAssertEqual(again, drives.count)
+    }
+
+    func testDemoCarChargesThroughTheLogger() async throws {
+        let store = try LogStore.inMemory()
+        let t0 = Date(timeIntervalSince1970: 1_790_000_000)
+        try await DemoData.seed(store, days: 3, now: t0)
+        let car = await DemoCar(store: store, now: t0)
+        let logger = await VehicleLogger(vin: DemoData.vin, source: car, store: store)
+        await logger.poll(now: t0, force: true)
+        await logger.poll(now: t0 + 5, force: true)
+        let s = await logger.state
+        XCTAssertEqual(s, .charging)
+        for i in 2...25 { await logger.poll(now: t0 + Double(i * 5), force: true) }
+        let finished = try await store.charges(vin: DemoData.vin).first
+        XCTAssertNotNil(finished?.endDate, "the demo charge completes")
+        XCTAssertGreaterThan(finished?.energyAddedKwh ?? 0, 10)
+    }
+}

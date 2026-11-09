@@ -9,6 +9,15 @@ struct SettingsView: View {
     var body: some View {
         @Bindable var model = model
         Form {
+            if model.isDemo {
+                Section {
+                    Button("Leave demo and sign in") { model.leaveDemo() }
+                } header: {
+                    Text("Demo mode")
+                } footer: {
+                    Text("You're looking at a simulated car and generated history, stored separately from your own data.")
+                }
+            }
             Section("Account") {
                 Picker("Region", selection: $model.settings.region) {
                     ForEach(FleetRegion.allCases, id: \.self) { Text($0.displayName).tag($0) }

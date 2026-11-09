@@ -16,6 +16,9 @@ struct AppSettings: Codable, Equatable {
     var notifyChargeComplete = true
     var notifyDriveLogged = false
     var selectedVIN: String?
+    /// Simulated car and generated history, kept in a separate database. Optional so settings
+    /// saved by older builds still decode.
+    var demoMode: Bool?
 
     // Overrides for the values compiled in from Config/*.xcconfig.
     var clientIDOverride: String = ""

@@ -36,6 +36,7 @@ struct OnboardingView: View {
                         .font(TL.Typeface.caption).foregroundStyle(TL.Palette.amber).multilineTextAlignment(.center)
                     NavigationLink("Developer app settings") { DeveloperAppSettingsView() }
                         .buttonStyle(.tlSecondary)
+                    demoButton
                 } else {
                     Button {
                         Task { await signIn() }
@@ -49,12 +50,23 @@ struct OnboardingView: View {
                         ForEach(FleetRegion.allCases, id: \.self) { Text($0.displayName).tag($0) }
                     }
                     NavigationLink("Developer app settings") { DeveloperAppSettingsView() }.font(.footnote)
+                    demoButton
                 }
             }
             .padding(TL.Space.s4)
             .frame(maxWidth: .infinity)
         }
         .background(TL.Palette.ground)
+    }
+
+    private var demoButton: some View {
+        VStack(spacing: TL.Space.s1) {
+            Button("Explore with a demo car") { model.enterDemo() }
+                .buttonStyle(.tlGhost)
+            Text("A month of sample drives and a charge in progress. Nothing is sent anywhere.")
+                .font(TL.Typeface.caption).foregroundStyle(TL.Palette.inkMuted).multilineTextAlignment(.center)
+        }
+        .padding(.top, TL.Space.s2)
     }
 
     private func signIn() async {
