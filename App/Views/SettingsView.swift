@@ -272,7 +272,9 @@ struct GeofencesView: View {
         .navigationTitle("Places")
         .toolbar(inPane ? .hidden : .automatic, for: .navigationBar)
         // Touching the side column, the list would reach in under the menu: stop short of it.
+        // The margin gets the list's ground too; otherwise the stack's black shows through.
         .padding(.trailing, inPane ? TL.Space.s4 : 0)
+        .background(TL.Palette.ground)
         .toolbar {
             if !inPane {
                 Button { editing = newFence() } label: { Label("Add", systemImage: "plus") }
